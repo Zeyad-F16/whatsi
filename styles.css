@@ -1,0 +1,284 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background-color: #f0f2f5;
+  direction: rtl; /* Arabic support */
+}
+
+.app-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+.sidebar {
+  width: 70px;
+  background-color: #111b21;
+  color: #e9edef;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #222d34;
+  transition: width 0.3s ease;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.sidebar:hover {
+  width: 260px;
+}
+
+.logo {
+  padding: 15px 0;
+  background-color: #111b21;
+  color: white;
+  text-align: center;
+  border-bottom: 1px solid #222d34;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo img {
+  width: 40px !important;
+  transition: width 0.3s ease;
+}
+
+.sidebar:hover .logo img {
+  width: 70px !important;
+}
+
+.logo h2 {
+  font-size: 1.2rem;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+.sidebar:hover .logo h2 {
+  opacity: 1;
+  height: auto;
+  margin-top: 5px;
+}
+
+.tab-list {
+  list-style: none;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.tab-item {
+  padding: 15px 0;
+  cursor: pointer;
+  border-bottom: 1px solid #222d34;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+}
+
+.tab-icon {
+  width: 70px;
+  text-align: center;
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.tab-name-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.sidebar:hover .tab-name-text {
+  opacity: 1;
+}
+
+.tab-item:hover {
+  background-color: #202c33;
+}
+
+.tab-item.active {
+  background-color: #2a3942;
+  border-right: 5px solid #00a884;
+}
+
+.tab-actions {
+  display: flex;
+  gap: 5px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.tab-item:hover .tab-actions {
+  opacity: 1;
+}
+
+.tab-action-btn {
+  background: none;
+  border: none;
+  color: #8696a0;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 3px;
+  font-size: 0.9rem;
+}
+
+.tab-action-btn:hover {
+  background: #202c33;
+  color: #d1d7db;
+}
+
+.tab-action-btn.delete:hover {
+  color: #f15c6d;
+}
+
+.add-btn {
+  padding: 15px 0;
+  background-color: #00a884;
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: bold;
+  transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+}
+
+.add-btn-icon {
+  width: 70px;
+  text-align: center;
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.add-btn-text {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.sidebar:hover .add-btn-text {
+  opacity: 1;
+}
+
+.add-btn:hover {
+  background-color: #008f6f;
+}
+
+.main-content {
+  flex: 1;
+  position: relative;
+  background-color: #efeae2;
+}
+
+/* Hide all webviews by default */
+webview {
+  display: none;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* Only show the active one */
+webview.active {
+  display: flex;
+}
+
+.welcome-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #54656f;
+  text-align: center;
+}
+
+.welcome-screen h2 {
+  margin-bottom: 10px;
+}
+
+.welcome-screen.hidden {
+  display: none;
+}
+
+/* Modal Styles */
+.modal {
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-content {
+  background: white;
+  padding: 30px;
+  border-radius: 8px;
+  width: 400px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.modal-content h3 {
+  margin-bottom: 15px;
+  color: #111b21;
+}
+
+.modal-content input {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 20px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  font-size: 1rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.modal-actions button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.cancel-btn {
+  background: #f0f2f5;
+  color: #111b21;
+}
+
+.cancel-btn:hover {
+  background: #e9edef;
+}
+
+.save-btn {
+  background: #00a884;
+  color: white;
+}
+
+.save-btn:hover {
+  background: #008f6f;
+}

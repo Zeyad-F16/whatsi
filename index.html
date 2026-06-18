@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Whatsi</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar for Accounts -->
+    <div class="sidebar">
+      <div class="logo">
+        <img src="whatsi.png" alt="Whatsi Logo" style="width: 70px; height: auto; border-radius: 12px; margin-bottom: 5px;" />
+        <h2 style="font-size: 1.2rem;">Whatsi</h2>
+      </div>
+      <ul id="tab-list" class="tab-list">
+        <!-- Account tabs injected here -->
+      </ul>
+      <button id="add-account-btn" class="add-btn">
+        <div class="add-btn-icon">+</div>
+        <span class="add-btn-text">أضف رقم واتساب</span>
+      </button>
+    </div>
+
+    <!-- Main Content Area for Webviews -->
+    <div id="webview-container" class="main-content">
+      <div id="welcome-screen" class="welcome-screen">
+        <h2>مرحباً بك في منصة Whatsi</h2>
+        <p>اضغط على "أضف رقم واتساب" لربط حساب جديد.</p>
+        <p>كل رقم سيعمل في بيئة معزولة تماماً!</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Name Input Modal -->
+  <div id="name-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3 id="modal-title">إضافة حساب جديد</h3>
+      <input type="text" id="account-name-input" placeholder="اكتب اسم الحساب (مثال: المبيعات)" />
+      <div class="modal-actions">
+        <button id="cancel-name-btn" class="cancel-btn">إلغاء</button>
+        <button id="save-name-btn" class="save-btn">حفظ وإضافة</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
