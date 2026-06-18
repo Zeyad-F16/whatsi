@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <title>انتهى الاشتراك — Whatsi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg2: #161b22;
+      --border: #30363d;
+      --danger: #f85149;
+      --danger-glow: rgba(248,81,73,0.15);
+      --warning: #e3b341;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Cairo', sans-serif;
+      background: radial-gradient(ellipse at 50% 30%, rgba(248,81,73,0.06) 0%, transparent 60%), var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      direction: rtl;
+    }
+    .card {
+      background: var(--bg2);
+      border: 1px solid rgba(248,81,73,0.25);
+      border-radius: 20px;
+      padding: 2.5rem 2rem;
+      width: 440px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(248,81,73,0.08);
+    }
+    .icon {
+      font-size: 3.5rem;
+      margin-bottom: 1rem;
+      display: block;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: var(--danger);
+      margin-bottom: 0.6rem;
+    }
+    .expiry-info {
+      background: rgba(248,81,73,0.08);
+      border: 1px solid rgba(248,81,73,0.2);
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+      margin: 1.25rem 0;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+    .expiry-info strong { color: var(--danger); }
+    p { color: var(--text-muted); font-size: 0.9rem; line-height: 1.7; margin-bottom: 1.5rem; }
+    .renew-box {
+      background: rgba(37,211,102,0.06);
+      border: 1px solid rgba(37,211,102,0.2);
+      border-radius: 12px;
+      padding: 1rem;
+      margin: 1rem 0;
+    }
+    .renew-box p { margin: 0; color: #e6edf3; font-size: 0.88rem; }
+    .btn-quit {
+      width: 100%;
+      padding: 0.75rem;
+      background: rgba(248,81,73,0.1);
+      border: 1px solid rgba(248,81,73,0.3);
+      border-radius: 10px;
+      color: var(--danger);
+      font-family: 'Cairo', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .2s;
+      margin-top: 0.5rem;
+    }
+    .btn-quit:hover { background: var(--danger); color: #fff; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <span class="icon">⏰</span>
+  <h1>انتهت صلاحية اشتراكك</h1>
+
+  <div class="expiry-info" id="expiry-info">
+    انتهى اشتراكك — يرجى التجديد للاستمرار
+  </div>
+
+  <p>
+    لقد انتهت مدة اشتراكك في تطبيق Whatsi.<br/>
+    لمتابعة استخدام التطبيق، يرجى التواصل مع مزود الخدمة لتجديد اشتراكك.
+  </p>
+
+  <div class="renew-box">
+    <p>📞 تواصل مع المزود لتجديد اشتراكك والحصول على كود تفعيل جديد</p>
+  </div>
+
+  <button class="btn-quit" onclick="quitApp()">إغلاق التطبيق</button>
+</div>
+
+<script>
+const { ipcRenderer } = require('electron');
+
+// Try to get stored license info to display expiry date
+try {
+  const fs = require('fs');
+  const path = require('path');
+  const { app } = require('@electron/remote') || {};
+  // Read from userData if available
+  const licData = localStorage.getItem('whatsi_expiry');
+  if (licData) {
+    document.getElementById('expiry-info').textContent = `تاريخ انتهاء الاشتراك: ${licData}`;
+  }
+} catch(e) {}
+
+function quitApp() {
+  const { remote } = require('electron');
+  if (remote) remote.app.quit();
+  else require('electron').ipcRenderer.send('quit-app');
+  window.close();
+}
+
+// Auto-quit after 60 seconds if user doesn't act
+setTimeout(() => {
+  try { window.close(); } catch(e) {}
+}, 60000);
+</script>
+</body>
+</html>

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Whatsi — لوحة إدارة التراخيص</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ══════════════ LOGIN SCREEN ══════════════ -->
+<div id="login-screen" class="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-icon">W</div>
+      <h1>Whatsi Admin</h1>
+      <p>لوحة إدارة التراخيص</p>
+    </div>
+    <form id="login-form" class="login-form">
+      <div class="form-group">
+        <label>اسم المستخدم</label>
+        <input type="text" id="login-username" placeholder="admin" autocomplete="username" />
+      </div>
+      <div class="form-group">
+        <label>كلمة المرور</label>
+        <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" />
+      </div>
+      <button type="submit" class="btn btn-primary btn-full" id="login-btn">
+        <span>تسجيل الدخول</span>
+      </button>
+      <div id="login-error" class="login-error hidden"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ══════════════ MAIN APP ══════════════ -->
+<div id="app" class="app hidden">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">
+        <div class="logo-icon-sm">W</div>
+        <span>Whatsi</span>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
+        <span class="nav-icon">📊</span> لوحة التحكم
+      </a>
+      <a href="#" class="nav-item" data-page="clients" onclick="navigate('clients')">
+        <span class="nav-icon">👥</span> العملاء
+      </a>
+      <a href="#" class="nav-item" data-page="logs" onclick="navigate('logs')">
+        <span class="nav-icon">📋</span> السجلات
+      </a>
+    </nav>
+    <button class="logout-btn" onclick="logout()">
+      <span>🚪</span> تسجيل الخروج
+    </button>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main">
+
+    <!-- TOP BAR -->
+    <div class="topbar">
+      <h2 id="page-title">لوحة التحكم</h2>
+      <div class="topbar-actions">
+        <button class="btn btn-primary" id="add-client-btn" onclick="openAddModal()" style="display:none">
+          + إضافة عميل
+        </button>
+      </div>
+    </div>
+
+    <!-- ── DASHBOARD PAGE ── -->
+    <div id="page-dashboard" class="page active">
+      <div class="stats-grid">
+        <div class="stat-card stat-total">
+          <div class="stat-icon">👥</div>
+          <div class="stat-body">
+            <div class="stat-value" id="stat-total">—</div>
+            <div class="stat-label">إجمالي العملاء</div>
+          </div>
+        </div>
+        <div class="stat-card stat-active">
+          <div class="stat-icon">✅</div>
+          <div class="stat-body">
+            <div class="stat-value" id="stat-active">—</div>
+            <div class="stat-label">اشتراكات نشطة</div>
+          </div>
+        </div>
+        <div class="stat-card stat-expired">
+          <div class="stat-icon">⛔</div>
+          <div class="stat-body">
+            <div class="stat-value" id="stat-expired">—</div>
+            <div class="stat-label">اشتراكات منتهية</div>
+          </div>
+        </div>
+        <div class="stat-card stat-soon">
+          <div class="stat-icon">⚠️</div>
+          <div class="stat-body">
+            <div class="stat-value" id="stat-soon">—</div>
+            <div class="stat-label">تنتهي خلال 7 أيام</div>
+          </div>
+        </div>
+        <div class="stat-card stat-revenue">
+          <div class="stat-icon">💰</div>
+          <div class="stat-body">
+            <div class="stat-value" id="stat-revenue">—</div>
+            <div class="stat-label">إجمالي الإيرادات</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-title">آخر النشاطات</div>
+      <div class="card">
+        <div id="recent-logs-list" class="logs-list">
+          <div class="empty-state">جارٍ التحميل...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CLIENTS PAGE ── -->
+    <div id="page-clients" class="page">
+      <!-- Search -->
+      <div class="search-bar">
+        <input type="text" id="client-search" placeholder="🔍  ابحث بالاسم أو الهاتف..." oninput="filterClients()" />
+      </div>
+
+      <div class="card table-card">
+        <table class="data-table" id="clients-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>اسم العميل</th>
+              <th>الهاتف</th>
+              <th>نوع الاشتراك</th>
+              <th>المبلغ المدفوع</th>
+              <th>كود التفعيل</th>
+              <th>تاريخ الانتهاء</th>
+              <th>الحالة</th>
+              <th>إجراءات</th>
+            </tr>
+          </thead>
+          <tbody id="clients-tbody">
+            <tr><td colspan="9" class="empty-state">جارٍ التحميل...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── LOGS PAGE ── -->
+    <div id="page-logs" class="page">
+      <div class="card">
+        <div id="all-logs-list" class="logs-list logs-full">
+          <div class="empty-state">جارٍ التحميل...</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ══════════════ ADD/EDIT CLIENT MODAL ══════════════ -->
+<div id="client-modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="modal-title">إضافة عميل جديد</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <form id="client-form" onsubmit="saveClient(event)">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>اسم العميل <span class="required">*</span></label>
+          <input type="text" id="f-name" placeholder="مثال: شركة النور" required />
+        </div>
+        <div class="form-group">
+          <label>رقم الهاتف</label>
+          <input type="tel" id="f-phone" placeholder="مثال: 01012345678" />
+        </div>
+        <div class="form-group">
+          <label>نوع الاشتراك <span class="required">*</span></label>
+          <select id="f-plan" required>
+            <option value="monthly">شهري</option>
+            <option value="yearly">سنوي</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>المبلغ المدفوع (جنيه)</label>
+          <input type="number" id="f-amount" placeholder="0" min="0" step="0.01" />
+        </div>
+        <div class="form-group">
+          <label>تاريخ بداية الاشتراك <span class="required">*</span></label>
+          <input type="date" id="f-start" required />
+        </div>
+        <div class="form-group" id="f-expiry-group" style="display:none">
+          <label>تاريخ انتهاء الاشتراك (للتعديل فقط)</label>
+          <input type="date" id="f-expiry" />
+        </div>
+        <div class="form-group" id="f-active-group" style="display:none">
+          <label>حالة الحساب</label>
+          <select id="f-active">
+            <option value="1">مفعّل</option>
+            <option value="0">معطل</option>
+          </select>
+        </div>
+        <div class="form-group full-width">
+          <label>ملاحظات</label>
+          <textarea id="f-notes" placeholder="أي ملاحظات إضافية..." rows="2"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">إلغاء</button>
+        <button type="submit" class="btn btn-primary" id="save-btn">حفظ</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ══════════════ ACTIVATION CODE MODAL ══════════════ -->
+<div id="code-modal" class="modal-overlay hidden">
+  <div class="modal-box modal-sm">
+    <div class="modal-header">
+      <h3>كود التفعيل</h3>
+      <button class="modal-close" onclick="closeCodeModal()">✕</button>
+    </div>
+    <div class="code-display">
+      <div id="code-value" class="code-value">—</div>
+      <button class="btn btn-ghost btn-sm" onclick="copyCode()">📋 نسخ الكود</button>
+    </div>
+    <div id="code-status" class="code-status"></div>
+    <div class="modal-footer" id="regen-footer">
+      <button class="btn btn-warning" onclick="regenerateCode()">🔄 إنشاء كود جديد</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ CONFIRM MODAL ══════════════ -->
+<div id="confirm-modal" class="modal-overlay hidden">
+  <div class="modal-box modal-sm">
+    <div class="modal-header">
+      <h3>تأكيد الحذف</h3>
+    </div>
+    <p style="padding: 0 1.5rem 1rem; color: var(--text-muted);">هل أنت متأكد من حذف هذا العميل؟ لا يمكن التراجع عن هذا الإجراء.</p>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeConfirm()">إلغاء</button>
+      <button class="btn btn-danger" id="confirm-delete-btn">حذف</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

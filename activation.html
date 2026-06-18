@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <title>تفعيل Whatsi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg2: #161b22;
+      --border: #30363d;
+      --accent: #25d366;
+      --accent2: #128c7e;
+      --accent-glow: rgba(37,211,102,0.15);
+      --danger: #f85149;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Cairo', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      direction: rtl;
+      background: radial-gradient(ellipse at 50% 30%, rgba(37,211,102,0.07) 0%, transparent 60%), var(--bg);
+    }
+    .card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 2.5rem 2rem;
+      width: 420px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .logo {
+      width: 70px; height: 70px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 20px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2rem;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 4px 24px rgba(37,211,102,0.35);
+    }
+    h1 { font-size: 1.4rem; font-weight: 800; margin-bottom: 0.4rem; }
+    .subtitle { color: var(--text-muted); font-size: 0.88rem; margin-bottom: 2rem; line-height: 1.6; }
+    .input-group { position: relative; margin-bottom: 1rem; }
+    input[type="text"] {
+      width: 100%;
+      background: #0d1117;
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-family: 'Courier New', monospace;
+      font-size: 1.1rem;
+      letter-spacing: 0.1em;
+      padding: 0.8rem 1rem;
+      text-align: center;
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+      direction: ltr;
+    }
+    input[type="text"]::placeholder { font-family: 'Cairo', sans-serif; letter-spacing: 0; font-size: 0.9rem; color: var(--text-muted); }
+    input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .btn {
+      width: 100%;
+      padding: 0.85rem;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-family: 'Cairo', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all .2s;
+      box-shadow: 0 4px 16px rgba(37,211,102,0.3);
+    }
+    .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(37,211,102,0.45); }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .error-msg {
+      margin-top: 0.75rem;
+      padding: 0.6rem;
+      background: rgba(248,81,73,0.1);
+      border: 1px solid rgba(248,81,73,0.3);
+      border-radius: 8px;
+      color: var(--danger);
+      font-size: 0.85rem;
+      display: none;
+    }
+    .success-msg {
+      margin-top: 0.75rem;
+      padding: 0.6rem;
+      background: rgba(37,211,102,0.1);
+      border: 1px solid rgba(37,211,102,0.3);
+      border-radius: 8px;
+      color: var(--accent);
+      font-size: 0.85rem;
+      display: none;
+    }
+    .footer-note {
+      margin-top: 1.5rem;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle;
+      margin-left: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">W</div>
+  <h1>تفعيل Whatsi</h1>
+  <p class="subtitle">
+    أدخل كود التفعيل الذي حصلت عليه عند شراء الاشتراك<br/>
+    لتفعيل التطبيق على هذا الجهاز
+  </p>
+
+  <div class="input-group">
+    <input
+      type="text"
+      id="code-input"
+      placeholder="XXXX-XXXX-XXXX-XXXX"
+      maxlength="19"
+      autocomplete="off"
+      spellcheck="false"
+    />
+  </div>
+
+  <button class="btn" id="activate-btn" onclick="activate()">
+    <span id="btn-text">تفعيل التطبيق</span>
+  </button>
+
+  <div class="error-msg" id="error-msg"></div>
+  <div class="success-msg" id="success-msg">✅ تم التفعيل بنجاح! جارٍ فتح التطبيق...</div>
+
+  <p class="footer-note">
+    كل كود صالح لجهاز واحد فقط ومرة واحدة فقط<br/>
+    للدعم تواصل مع مزود الخدمة
+  </p>
+</div>
+
+<script>
+const { ipcRenderer } = require('electron');
+
+const codeInput = document.getElementById('code-input');
+
+// Auto-format code as user types: XXXX-XXXX-XXXX-XXXX
+codeInput.addEventListener('input', (e) => {
+  let val = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  let formatted = '';
+  for (let i = 0; i < val.length && i < 16; i++) {
+    if (i > 0 && i % 4 === 0) formatted += '-';
+    formatted += val[i];
+  }
+  e.target.value = formatted;
+});
+
+codeInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') activate();
+});
+
+async function activate() {
+  const code = codeInput.value.trim();
+  if (!code || code.length < 19) {
+    showError('يرجى إدخال كود التفعيل كاملاً (XXXX-XXXX-XXXX-XXXX)');
+    return;
+  }
+
+  const btn = document.getElementById('activate-btn');
+  const btnText = document.getElementById('btn-text');
+  btn.disabled = true;
+  btnText.innerHTML = 'جارٍ التحقق... <span class="spinner"></span>';
+  hideMessages();
+
+  const result = await ipcRenderer.invoke('activate-license', code);
+
+  if (result.success) {
+    document.getElementById('success-msg').style.display = 'block';
+    setTimeout(() => {
+      ipcRenderer.send('activation-success');
+    }, 1500);
+  } else {
+    showError(result.message || 'فشل التفعيل. يرجى المحاولة مرة أخرى.');
+    btn.disabled = false;
+    btnText.textContent = 'تفعيل التطبيق';
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-msg');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function hideMessages() {
+  document.getElementById('error-msg').style.display = 'none';
+  document.getElementById('success-msg').style.display = 'none';
+}
+</script>
+</body>
+</html>
