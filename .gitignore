@@ -1,1 +1,117 @@
-node_modules
+# Dependencies
+node_modules/
+.pnp/
+.pnp.*
+
+# Environment Variables & Secrets (CRITICAL)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Compiled & Build Output (Next.js, NestJS, Electron)
+dist/
+build/
+release/
+out/
+.next/
+*.tsbuildinfo
+
+# Logs & Debug
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# User Uploads & Temporary Data
+uploads/
+website/backend/uploads/
+.temp/
+.tmp/
+*.pid
+*.seed
+*.pid.lock
+
+# Editor & IDE Configs
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# AI Coding & Workspace Caches
+.gemini/
+.agents/
+brain/
+# Dependencies
+node_modules/
+.pnp/
+.pnp.*
+
+# Environment Variables & Secrets (CRITICAL)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Compiled & Build Output (Next.js, NestJS, Electron)
+dist/
+build/
+release/
+out/
+.next/
+*.tsbuildinfo
+
+# Logs & Debug
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# User Uploads & Temporary Data
+uploads/
+website/backend/uploads/
+.temp/
+.tmp/
+*.pid
+*.seed
+*.pid.lock
+
+# Editor & IDE Configs
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# AI Coding & Workspace Caches
+.gemini/
+.agents/
+brain/
+scratch/
+.kiro/
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.exe

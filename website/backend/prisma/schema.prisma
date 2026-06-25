@@ -1,0 +1,50 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Client {
+  id              Int      @id @default(autoincrement())
+  name            String
+  phone           String?
+  planType        String   @map("plan_type") // 'monthly' or 'yearly'
+  amountPaid      Float    @default(0) @map("amount_paid")
+  activationCode  String   @unique @map("activation_code")
+  codeUsed        Boolean  @default(false) @map("code_used")
+  machineId       String?  @map("machine_id")
+  startDate       String   @map("start_date")
+  expiryDate      String   @map("expiry_date")
+  isActive        Boolean  @default(true) @map("is_active")
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  LicenseLogs     LicenseLog[]
+
+  @@map("clients")
+}
+
+model AdminSession {
+  id         Int      @id @default(autoincrement())
+  tokenHash  String   @map("token_hash")
+  createdAt  DateTime @default(now()) @map("created_at")
+  expiresAt  DateTime @map("expires_at")
+
+  @@map("admin_sessions")
+}
+
+model LicenseLog {
+  id         Int      @id @default(autoincrement())
+  clientId   Int?     @map("client_id")
+  action     String
+  machineId  String?  @map("machine_id")
+  ipAddress  String?  @map("ip_address")
+  details    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  Client     Client?  @relation(fields: [clientId], references: [id])
+
+  @@map("license_logs")
+}
