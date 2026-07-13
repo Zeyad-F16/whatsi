@@ -775,8 +775,221 @@ export default function Home() {
                    </div>
                  </motion.div>
               </div>
-           </motion.div>
+            </motion.div>
+        </div>
+      </section>
 
+      {/* CORE FEATURE SECTION (Data Flow Node) */}
+      <section id="core-feature" className="relative w-full p-6 lg:p-8 pt-24 lg:pt-32 pb-64 z-10">
+        
+        {/* Subtle Premium Background for the Section */}
+        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+           <div className="absolute top-[20%] right-[10%] w-[500px] h-[500px] bg-[radial-gradient(circle,rgba(0,229,89,0.03)_0%,transparent_70%)]"></div>
+           <div className="absolute bottom-[20%] left-[10%] w-[600px] h-[600px] bg-[radial-gradient(circle,rgba(0,204,80,0.03)_0%,transparent_70%)]"></div>
+           {/* Very light dot pattern */}
+           <div className="absolute inset-0 opacity-[0.015]" style={{ backgroundImage: 'radial-gradient(#00E559 1px, transparent 1px)', backgroundSize: '30px 30px' }}></div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-12 relative items-start z-10">
+          
+          {/* Left: Sticky Abstract Data Flow Node */}
+          <div className="lg:col-span-5 lg:sticky lg:top-32 self-start flex flex-col justify-center items-center lg:items-start text-center lg:text-left mb-16 lg:mb-0">
+             <span className="inline-block px-4 py-2 rounded-full bg-[#00E559]/10 text-[#00993b] text-xs font-black tracking-widest uppercase mb-6 border border-[#00E559]/20">The Core Engine</span>
+             <h2 className="text-4xl md:text-5xl lg:text-6xl font-black text-gray-900 tracking-tight leading-tight mb-6">Unlimited Scale.<br/><span className="text-[#00cc50]">Absolute Control.</span></h2>
+             <p className="text-gray-500 font-medium text-base lg:text-lg max-w-md mb-10">Manage thousands of conversations across unlimited employee accounts simultaneously without dropping a single message.</p>
+             
+             {/* The Data Flow Node (Abstract SVG) */}
+             <div className="relative w-full max-w-[350px] lg:max-w-[450px] aspect-square flex items-center justify-center mt-4">
+                <div className="absolute inset-0 bg-[radial-gradient(circle,rgba(0,229,89,0.1)_0%,transparent_70%)] rounded-full pointer-events-none"></div>
+                
+                {/* Central Core */}
+                <motion.div animate={{ scale: [1, 1.05, 1], boxShadow: ["0 0 20px rgba(0,229,89,0.2)", "0 0 40px rgba(0,229,89,0.4)", "0 0 20px rgba(0,229,89,0.2)"] }} transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }} className="absolute z-20 w-20 h-20 lg:w-28 lg:h-28 bg-white rounded-full border-4 border-[#00cc50] flex items-center justify-center">
+                   <div className="w-12 h-12 lg:w-16 lg:h-16 bg-[#00cc50] rounded-full flex items-center justify-center shadow-inner">
+                      <Zap className="w-6 h-6 lg:w-8 lg:h-8 text-white" />
+                   </div>
+                </motion.div>
+
+                {/* SVG Connections - Optimized Scale (6 Nodes) + Data Packets */}
+                <svg viewBox="0 0 400 400" className="absolute inset-0 w-full h-full z-10 overflow-visible pointer-events-none">
+                  {[
+                    { path: "M200,200 Q100,50 50,100", cx: 50, cy: 100, r: 18, delay: 0, dur: 2 },
+                    { path: "M200,200 Q350,100 320,50", cx: 320, cy: 50, r: 24, delay: 0.5, dur: 2.5, iconClass: "text-[#00cc50]", isMain: true },
+                    { path: "M200,200 Q300,350 350,280", cx: 350, cy: 280, r: 20, delay: 1.2, dur: 1.8 },
+                    { path: "M200,200 Q50,300 80,350", cx: 80, cy: 350, r: 16, delay: 0.8, dur: 2.2 },
+                    { path: "M200,200 Q120,30 180,40", cx: 180, cy: 40, r: 14, delay: 1.5, dur: 2 },
+                    { path: "M200,200 Q150,380 200,350", cx: 200, cy: 350, r: 22, delay: 0.7, dur: 2.1, iconClass: "text-[#00cc50]" }
+                  ].map((node, i) => (
+                    <g key={i}>
+                      {/* Faint static path */}
+                      <path d={node.path} fill="none" stroke="#00cc50" strokeWidth="1.5" strokeOpacity="0.15" strokeDasharray="4 4" />
+                      {/* Green glowing line filling up */}
+                      <motion.path d={node.path} fill="none" stroke="#00E559" strokeWidth="2.5" initial={{ pathLength: 0, opacity: 0 }} animate={{ pathLength: 1, opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: node.dur, delay: node.delay, ease: "linear" }} />
+                      {/* Animated Data Packets (Moving dots along the path) */}
+                      <motion.path d={node.path} fill="none" stroke="#00cc50" strokeWidth="4" strokeDasharray="1 40" strokeDashoffset="40" animate={{ strokeDashoffset: 0 }} transition={{ repeat: Infinity, duration: node.dur * 0.8, delay: node.delay, ease: "linear" }} strokeLinecap="round" />
+                      
+                      <circle cx={node.cx} cy={node.cy} r={node.r} fill="white" stroke="#00cc50" strokeWidth="2" className={node.isMain ? "shadow-sm" : ""} />
+                      <foreignObject x={node.cx - (node.r * 0.7)} y={node.cy - (node.r * 0.7)} width={node.r * 1.4} height={node.r * 1.4}>
+                         <User className={`w-full h-full ${node.iconClass || "text-gray-400"}`} />
+                      </foreignObject>
+                    </g>
+                  ))}
+                </svg>
+             </div>
+          </div>
+
+          {/* Right: Scrolling Bento Boxes */}
+          <div className="lg:col-span-7 flex flex-col gap-6 lg:gap-8 pb-10">
+             
+             {/* Feature Box 1 */}
+             <motion.div initial={{ opacity: 0, y: 100 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.7 }} className={`${bentoBoxClass} p-8 lg:p-14`}>
+               {/* Idea A: Holographic Rings (Optimized SVG) */}
+               <div className="absolute top-0 right-0 w-full h-full overflow-hidden z-0 pointer-events-none opacity-40 group-hover:opacity-60 transition-opacity duration-700">
+                  <svg viewBox="0 0 400 400" className="absolute -right-20 -top-20 w-96 h-96 opacity-50">
+                     <motion.circle cx="200" cy="200" r="180" fill="none" stroke="#00E559" strokeWidth="2" strokeDasharray="20 10" animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 30, ease: "linear" }} className="origin-center" />
+                     <motion.circle cx="200" cy="200" r="140" fill="none" stroke="#00cc50" strokeWidth="4" strokeDasharray="30 20" animate={{ rotate: -360 }} transition={{ repeat: Infinity, duration: 25, ease: "linear" }} className="origin-center" />
+                     <motion.circle cx="200" cy="200" r="100" fill="none" stroke="#00E559" strokeWidth="1" animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 15, ease: "linear" }} className="origin-center" />
+                  </svg>
+               </div>
+
+               <div className="relative z-10">
+                 <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center mb-6 text-blue-500 border border-blue-100 shadow-sm group-hover:scale-110 transition-transform duration-300">
+                   <Globe className="w-6 h-6" />
+                 </div>
+                 <h3 className="text-2xl lg:text-3xl font-extrabold text-gray-900 mb-4 tracking-tight">Unlimited Numbers</h3>
+                 <p className="text-base lg:text-lg text-gray-500 font-medium leading-relaxed mb-10">Connect as many WhatsApp accounts as your team needs. There are no limits to how many employees you can monitor from your master dashboard.</p>
+                 
+                 {/* Network Hub Mockup (Optimized & Cleaned) */}
+                 <div className="w-full h-48 bg-white rounded-2xl border border-gray-100 shadow-[0_10px_30px_rgba(0,0,0,0.04)] flex items-center justify-center overflow-hidden relative">
+                   <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-50">
+                     <path d="M100,100 L30,40" stroke="#00cc50" strokeWidth="1.5" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+                     <path d="M100,100 L170,40" stroke="#00cc50" strokeWidth="1.5" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+                     <path d="M100,100 L50,160" stroke="#00cc50" strokeWidth="1.5" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+                     <path d="M100,100 L150,160" stroke="#00cc50" strokeWidth="1.5" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+                   </svg>
+                   <div className="relative z-10 w-16 h-16 bg-[#00E559] rounded-full shadow-[0_0_20px_rgba(0,229,89,0.3)] flex items-center justify-center text-white border-4 border-white">
+                      <Zap className="w-8 h-8" />
+                   </div>
+                   <motion.div animate={{ y: [-3, 3, -3] }} transition={{ repeat: Infinity, duration: 4 }} className="absolute top-[15%] left-[15%] w-12 h-12 bg-white rounded-full shadow-sm border border-gray-100 flex items-center justify-center"><User className="w-6 h-6 text-gray-400" /></motion.div>
+                   <motion.div animate={{ y: [3, -3, 3] }} transition={{ repeat: Infinity, duration: 3.5 }} className="absolute top-[15%] right-[15%] w-14 h-14 bg-white rounded-full shadow-sm border border-gray-100 flex items-center justify-center"><User className="w-7 h-7 text-[#00cc50]" /></motion.div>
+                   <motion.div animate={{ y: [-3, 3, -3] }} transition={{ repeat: Infinity, duration: 4.5 }} className="absolute bottom-[15%] left-[25%] w-10 h-10 bg-white rounded-full shadow-sm border border-gray-100 flex items-center justify-center"><User className="w-5 h-5 text-gray-400" /></motion.div>
+                   <motion.div animate={{ y: [3, -3, 3] }} transition={{ repeat: Infinity, duration: 5 }} className="absolute bottom-[15%] right-[25%] w-10 h-10 bg-white rounded-full shadow-sm border border-gray-100 flex items-center justify-center"><User className="w-5 h-5 text-gray-400" /></motion.div>
+                 </div>
+               </div>
+             </motion.div>
+
+             {/* Feature Box 2 */}
+             <motion.div initial={{ opacity: 0, y: 100 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.7 }} className={`${bentoBoxClass} p-8 lg:p-14`}>
+               {/* Idea B: Clean Glowing Orbs (Optimized Background) */}
+               <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none opacity-50">
+                  <div className="absolute right-0 top-10 w-64 h-64 bg-[radial-gradient(circle,rgba(0,229,89,0.15)_0%,transparent_70%)]"></div>
+                  <div className="absolute -left-10 bottom-10 w-80 h-80 bg-[radial-gradient(circle,rgba(0,204,80,0.1)_0%,transparent_70%)]"></div>
+               </div>
+
+               <div className="relative z-10">
+                 <div className="w-12 h-12 rounded-full bg-purple-50 flex items-center justify-center mb-6 text-purple-500 border border-purple-100 shadow-sm group-hover:scale-110 transition-transform duration-300">
+                   <CheckCheck className="w-6 h-6" />
+                 </div>
+                 <h3 className="text-2xl lg:text-3xl font-extrabold text-gray-900 mb-4 tracking-tight">Real-Time Sync</h3>
+                 <p className="text-base lg:text-lg text-gray-500 font-medium leading-relaxed mb-10">Messages, media, and statuses are synced instantly across all connected devices. Never miss a single interaction.</p>
+                 
+                 {/* Radial Gauge Mockup (Optimized & Fixed 100%) */}
+                 <div className="w-full h-48 bg-white rounded-2xl border border-gray-100 pt-8 shadow-[0_10px_30px_rgba(0,0,0,0.04)] flex flex-col items-center justify-end relative overflow-hidden">
+                   
+                   <div className="relative w-[200px] h-[100px] mt-auto flex justify-center">
+                      <svg viewBox="0 0 100 50" className="w-full h-full overflow-visible">
+                        {/* Background Track */}
+                        <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#f3f4f6" strokeWidth="8" strokeLinecap="round" />
+                        {/* Active Track */}
+                        <motion.path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="#00cc50" strokeWidth="8" strokeLinecap="round" initial={{ pathLength: 0 }} whileInView={{ pathLength: 1 }} transition={{ duration: 1.5, ease: "easeOut" }} />
+                      </svg>
+                      {/* Text in center */}
+                      <div className="absolute bottom-0 left-0 w-full flex flex-col items-center justify-end pb-1">
+                        <span className="text-3xl font-black text-gray-900 tracking-tighter leading-none">100%</span>
+                        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Synced</span>
+                      </div>
+                   </div>
+                   
+                   {/* Floating Checkmarks */}
+                   <motion.div animate={{ y: [-4, 4, -4], rotate: [-5, 5, -5] }} transition={{ repeat: Infinity, duration: 4 }} className="absolute top-6 left-6 w-10 h-10 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center"><CheckCheck className="w-5 h-5 text-[#00cc50]" /></motion.div>
+                   <motion.div animate={{ y: [4, -4, 4], rotate: [5, -5, 5] }} transition={{ repeat: Infinity, duration: 3.5 }} className="absolute top-10 right-8 w-10 h-10 bg-white rounded-xl shadow-sm border border-gray-100 flex items-center justify-center"><Zap className="w-5 h-5 text-purple-500" /></motion.div>
+                 </div>
+               </div>
+             </motion.div>
+
+             {/* Feature Box 3 */}
+             <motion.div initial={{ opacity: 0, y: 100 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-50px" }} transition={{ duration: 0.7 }} className={`${bentoBoxClass} p-8 lg:p-14`}>
+               {/* Idea C: Glowing Geometric Network (Optimized Background) */}
+               <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none opacity-40 group-hover:opacity-60 transition-opacity duration-700">
+                  <div className="absolute -bottom-20 -right-20 w-[400px] h-[400px] border border-[#00E559]/20 rounded-full"></div>
+                  <div className="absolute -bottom-10 -right-10 w-[300px] h-[300px] border border-[#00E559]/10 rounded-full"></div>
+                  <div className="absolute bottom-0 right-0 w-[200px] h-[200px] bg-[radial-gradient(circle,rgba(0,229,89,0.1)_0%,transparent_70%)]"></div>
+               </div>
+
+               <div className="relative z-10">
+                 <div className="w-12 h-12 rounded-full bg-orange-50 flex items-center justify-center mb-6 text-orange-500 border border-orange-100 shadow-sm group-hover:scale-110 transition-transform duration-300">
+                   <Activity className="w-6 h-6" />
+                 </div>
+                 <h3 className="text-2xl lg:text-3xl font-extrabold text-gray-900 mb-4 tracking-tight">Centralized Insights</h3>
+                 <p className="text-base lg:text-lg text-gray-500 font-medium leading-relaxed mb-10">Generate powerful reports on employee performance, average response times, and total message volumes across all branches.</p>
+                 
+                 {/* Employee Performance Mockup */}
+                 <div className="w-full h-auto min-h-[14rem] bg-white rounded-2xl border border-gray-100 shadow-[0_10px_30px_rgba(0,0,0,0.04)] relative overflow-hidden flex flex-col p-4 lg:p-6">
+                   
+                   {/* Header */}
+                   <div className="flex items-center justify-between mb-5 relative z-10">
+                     <div className="flex items-center gap-3">
+                       <div className="w-10 h-10 rounded-full bg-[#00E559]/10 flex items-center justify-center text-[#00cc50]">
+                         <TrendingUp className="w-5 h-5" />
+                       </div>
+                       <div>
+                         <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Team Efficiency</div>
+                         <div className="text-lg font-black text-gray-900 leading-none">+42.5%</div>
+                       </div>
+                     </div>
+                     <div className="text-[10px] font-bold text-[#00cc50] bg-[#00E559]/10 px-2 py-1 rounded-md border border-[#00E559]/20 hidden sm:block">Last 30 Days</div>
+                   </div>
+
+                   {/* Background Decor */}
+                   <div className="absolute top-0 right-0 w-32 h-32 bg-[radial-gradient(circle,rgba(0,229,89,0.05)_0%,transparent_70%)] pointer-events-none"></div>
+
+                   {/* Employee List */}
+                   <div className="flex flex-col gap-4 relative z-10">
+                     {[
+                       { name: "Ahmed Y.", role: "Sales Rep", before: 40, after: 95 },
+                       { name: "Sarah M.", role: "Support", before: 60, after: 100 },
+                       { name: "Omar K.", role: "Marketing", before: 30, after: 85 },
+                     ].map((emp, i) => (
+                       <div key={i} className="flex items-center gap-3">
+                         <div className="w-8 h-8 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0 shadow-sm relative overflow-hidden group/emp">
+                            <User className="w-4 h-4 text-gray-400 group-hover/emp:scale-110 transition-transform" />
+                         </div>
+                         <div className="flex-1">
+                           <div className="flex justify-between items-end mb-1.5">
+                             <div className="flex items-center gap-2">
+                                <span className="text-sm font-extrabold text-gray-900">{emp.name}</span>
+                                <span className="text-[10px] font-bold text-gray-400 hidden sm:inline">{emp.role}</span>
+                             </div>
+                             <span className="text-xs font-bold text-[#00cc50]">{emp.after}%</span>
+                           </div>
+                           {/* Progress Bar Container */}
+                           <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden relative">
+                              {/* Before indicator (grey/transparent) */}
+                              <div className="absolute top-0 left-0 h-full bg-gray-200" style={{ width: `${emp.before}%` }}></div>
+                              {/* After indicator (green animated) */}
+                              <motion.div initial={{ width: `${emp.before}%` }} whileInView={{ width: `${emp.after}%` }} transition={{ duration: 1.5, delay: 0.2 + (i * 0.15), ease: "easeOut" }} className="absolute top-0 left-0 h-full bg-gradient-to-r from-[#00cc50] to-[#00E559] relative overflow-hidden">
+                                 <div className="absolute top-0 left-0 w-full h-full bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.4),transparent)] -translate-x-full animate-[shimmer_2s_infinite]"></div>
+                              </motion.div>
+                           </div>
+                         </div>
+                       </div>
+                     ))}
+                   </div>
+
+                 </div>
+               </div>
+             </motion.div>
+
+          </div>
         </div>
       </section>
 
