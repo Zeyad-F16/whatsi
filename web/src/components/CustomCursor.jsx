@@ -1,14 +1,23 @@
 "use client";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { usePathname } from "next/navigation";
 
 export default function CustomCursor() {
   const [mousePosition, setMousePosition] = useState({ x: -100, y: -100 });
   const [isHovering, setIsHovering] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
     setIsMounted(true);
+
+    if (pathname && !pathname.startsWith('/control-wp')) {
+      document.body.classList.add('hide-cursor');
+    } else {
+      document.body.classList.remove('hide-cursor');
+    }
+
     const updateMousePosition = (e) => {
       setMousePosition({ x: e.clientX, y: e.clientY });
     };
@@ -17,7 +26,8 @@ export default function CustomCursor() {
       if (
         e.target.closest('a') || 
         e.target.closest('button') || 
-        e.target.closest('.group')
+        e.target.closest('.group') ||
+        e.target.closest('[class*="cursor-pointer"]')
       ) {
         setIsHovering(true);
       } else {
@@ -31,10 +41,12 @@ export default function CustomCursor() {
     return () => {
       window.removeEventListener("mousemove", updateMousePosition);
       window.removeEventListener("mouseover", handleMouseOver);
+      document.body.classList.remove('hide-cursor');
     };
-  }, []);
+  }, [pathname]);
 
   if (!isMounted) return null;
+  if (pathname && pathname.startsWith('/control-wp')) return null;
 
   return (
     <div className="pointer-events-none fixed inset-0" style={{ zIndex: 999999 }}>

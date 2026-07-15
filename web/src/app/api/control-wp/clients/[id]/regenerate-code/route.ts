@@ -14,12 +14,13 @@ function generateCode() {
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
   try {
-    const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(params.id);
+    const { id } = await params;
+    const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(id);
     if (!client) {
       return NextResponse.json({ success: false, message: 'العميل غير موجود' }, { status: 404 });
     }
@@ -27,10 +28,10 @@ export async function POST(
     const newCode = generateCode();
     
     db.prepare('UPDATE clients SET activation_code = ?, code_used = 0, machine_id = NULL WHERE id = ?')
-      .run(newCode, params.id);
+      .run(newCode, id);
 
     db.prepare(`INSERT INTO license_logs (client_id, action, details) VALUES (?, ?, ?)`)
-      .run(params.id, 'CODE_REGENERATED', `New code: ${newCode}`);
+      .run(id, 'CODE_REGENERATED', `New code: ${newCode}`);
 
     return NextResponse.json({ 
       success: true, 

@@ -1,4 +1,5 @@
 import { Plus_Jakarta_Sans, Tajawal } from "next/font/google";
+import CustomCursor from "../components/CustomCursor";
 import "./globals.css";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <body className="min-h-full flex flex-col font-tajawal bg-[#f4f7f5] text-gray-900" suppressHydrationWarning>
         <SmoothScrolling>
+          <CustomCursor />
           {children}
         </SmoothScrolling>
       </body>

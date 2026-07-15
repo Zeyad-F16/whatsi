@@ -4,12 +4,13 @@ import db from '@/lib/db';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
   try {
-    const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(params.id);
+    const { id } = await params;
+    const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(id);
     if (!client) {
       return NextResponse.json({ success: false, message: 'العميل غير موجود' }, { status: 404 });
     }
@@ -22,11 +23,12 @@ export async function GET(
 
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
   try {
+    const { id } = await params;
     const body = await request.json();
     const { name, phone, plan_type, amount_paid, is_active, notes, expiry_date } = body;
 
@@ -48,7 +50,7 @@ export async function PUT(
       is_active !== undefined ? is_active : 1,
       notes || null,
       expiry_date,
-      params.id
+      id
     );
 
     if (result.changes === 0) {
@@ -56,7 +58,7 @@ export async function PUT(
     }
 
     db.prepare(`INSERT INTO license_logs (client_id, action, details) VALUES (?, ?, ?)`)
-      .run(params.id, 'CLIENT_UPDATED', `Updated by Admin`);
+      .run(id, 'CLIENT_UPDATED', `Updated by Admin`);
 
     return NextResponse.json({ success: true, message: 'تم التحديث بنجاح' });
   } catch (error) {
@@ -67,12 +69,13 @@ export async function PUT(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   if (!verifyAuth(request)) return unauthorizedResponse();
 
   try {
-    const result = db.prepare('DELETE FROM clients WHERE id = ?').run(params.id);
+    const { id } = await params;
+    const result = db.prepare('DELETE FROM clients WHERE id = ?').run(id);
 
     if (result.changes === 0) {
       return NextResponse.json({ success: false, message: 'العميل غير موجود' }, { status: 404 });
