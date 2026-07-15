@@ -34,7 +34,9 @@ import {
   ChevronRight,
   Database,
   Smartphone,
-  Star
+  Star,
+  HelpCircle,
+  ChevronDown
 } from "lucide-react";
 import { AnimatedGradient } from "@/components/ui/animated-gradient";
 
@@ -55,6 +57,32 @@ export default function Home() {
 
   // Pricing State
   const [isYearly, setIsYearly] = React.useState(false);
+
+  // FAQ State
+  const [openFaqIndex, setOpenFaqIndex] = React.useState<number | null>(0);
+
+  const faqs = [
+    {
+      question: "How long does it take to get WhatsApp API approval?",
+      answer: "With WhatsiPro, the approval process is streamlined. Most businesses get their WhatsApp Business API approved within 24 to 48 hours, assuming all business verification documents are ready."
+    },
+    {
+      question: "Do I need technical skills to use WhatsiPro?",
+      answer: "Not at all. We built WhatsiPro to be a no-code, plug-and-play platform. Our intuitive dashboard lets you set up auto-replies, manage agents, and broadcast messages without writing a single line of code."
+    },
+    {
+      question: "Can multiple agents use the same WhatsApp number?",
+      answer: "Yes! That's one of our core features. You can connect a single WhatsApp number to WhatsiPro and have your entire customer support or sales team manage conversations simultaneously from different devices."
+    },
+    {
+      question: "What happens if I exceed my monthly message limit?",
+      answer: "You will never be cut off abruptly. If you exceed your limit, you will be billed a small overage fee per message, or you can seamlessly upgrade to the next tier directly from your billing dashboard."
+    },
+    {
+      question: "Can I integrate WhatsiPro with my existing CRM?",
+      answer: "Absolutely. We offer native integrations for popular CRMs like Salesforce, HubSpot, and Zoho. For custom solutions, our robust REST API and Webhooks allow you to connect WhatsiPro to virtually any software."
+    }
+  ];
 
   const [supportChats, setSupportChats] = React.useState([
     {
@@ -2053,6 +2081,203 @@ export default function Home() {
                </div>
 
             </div>
+         </div>
+      </section>
+
+      {/* FAQ SECTION (Split Layout) */}
+      <section className="relative w-full pt-16 pb-32 bg-transparent overflow-hidden">
+         {/* Minimal Floating Background Icons */}
+         <div className="absolute inset-0 pointer-events-none">
+            <MessageCircle className="absolute top-[20%] left-[5%] w-24 h-24 text-[#00cc50]/5 -rotate-12" />
+            <Globe className="absolute bottom-[20%] right-[10%] w-16 h-16 text-[#00cc50]/5 rotate-[15deg]" />
+            <Star className="absolute top-[50%] right-[5%] w-12 h-12 text-[#00cc50]/5 -rotate-[20deg]" />
+         </div>
+
+         <div className="relative z-10 w-full mx-auto px-6 lg:px-12 xl:px-20">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 lg:gap-24">
+               
+               {/* Left Column (Sticky Title & CTA) */}
+               <motion.div 
+                  initial={{ opacity: 0, y: 30 }} 
+                  whileInView={{ opacity: 1, y: 0 }} 
+                  viewport={{ once: true, margin: "-100px" }} 
+                  transition={{ duration: 0.8, ease: "easeOut" }}
+                  className="lg:col-span-5 xl:col-span-4"
+               >
+                  <div>
+                     <span className="inline-flex items-center justify-center px-4 py-2 rounded-full bg-white shadow-sm border border-gray-100 mb-8 font-bold text-sm tracking-wide text-gray-900 group">
+                        <span className="relative flex h-2 w-2 mr-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#00E559] opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-[#00cc50]"></span>
+                        </span>
+                        FAQ
+                        <HelpCircle className="w-3 h-3 ml-1 text-[#00cc50]" />
+                     </span>
+                     
+                     <h2 className="text-3xl lg:text-4xl font-extrabold text-gray-900 mb-4 tracking-tight">
+                        Got questions? <br/> We've got answers.
+                     </h2>
+                     <p className="text-gray-500 text-base font-medium mb-10 max-w-sm">
+                        Everything you need to know about WhatsiPro and how it can supercharge your WhatsApp communication.
+                     </p>
+                     
+                     <div className="bg-white p-6 lg:p-8 rounded-[2rem] border border-gray-100 shadow-[0_8px_30px_rgba(0,0,0,0.04)] hover:shadow-[0_20px_80px_rgba(0,0,0,0.08)] transition-all duration-500">
+                        <h4 className="font-bold text-gray-900 mb-2">Still have questions?</h4>
+                        <p className="text-sm text-gray-500 mb-6 font-medium">Can't find the answer you're looking for? Please chat to our friendly team.</p>
+                        <button className="w-full bg-white text-gray-900 border-2 border-gray-200 font-bold py-3 rounded-full hover:border-[#00cc50] hover:text-[#00cc50] hover:shadow-[0_8px_20px_rgba(0,204,80,0.12)] hover:-translate-y-0.5 active:scale-[0.98] transition-all duration-300">
+                           Contact Support
+                        </button>
+                     </div>
+                  </div>
+               </motion.div>
+
+               {/* Right Column (Accordion List) */}
+               <div className="lg:col-span-7 xl:col-span-8">
+                  <div className="flex flex-col gap-4">
+                     {faqs.map((faq, index) => {
+                        const isOpen = openFaqIndex === index;
+                        return (
+                           <motion.div 
+                              initial={{ opacity: 0, y: 30 }} 
+                              whileInView={{ opacity: 1, y: 0 }} 
+                              whileHover={{ y: -5, scale: 1.01, transition: hoverSpring }}
+                              viewport={{ once: true, margin: "-50px" }}
+                              transition={{ duration: 0.6, ease: "easeOut", delay: index * 0.1 }}
+                              key={index} 
+                              onClick={() => setOpenFaqIndex(isOpen ? null : index)}
+                              className={`group cursor-pointer bg-white border rounded-2xl p-6 transition-colors duration-300 ${isOpen ? 'border-[#00cc50]/30 shadow-[0_8px_30px_rgba(0,204,80,0.08)]' : 'border-gray-100 hover:border-gray-200 shadow-sm hover:shadow-md'}`}
+                           >
+                              <div className="flex justify-between items-center gap-6">
+                                 <h3 className={`text-lg font-bold transition-colors duration-300 ${isOpen ? 'text-[#00cc50]' : 'text-gray-900 group-hover:text-gray-700'}`}>
+                                    {faq.question}
+                                 </h3>
+                                 <div className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 ${isOpen ? 'bg-[#00cc50] text-white rotate-180 shadow-md' : 'bg-gray-50 text-gray-400 group-hover:bg-[#00cc50]/10 group-hover:text-[#00cc50]'}`}>
+                                    <ChevronDown className="w-4 h-4" />
+                                 </div>
+                              </div>
+                              <div 
+                                 className={`overflow-hidden transition-all duration-500 ease-in-out ${isOpen ? 'max-h-[300px] opacity-100 mt-4' : 'max-h-0 opacity-0 mt-0'}`}
+                              >
+                                 <p className="text-gray-500 text-sm font-medium leading-relaxed pr-12">
+                                    {faq.answer}
+                                 </p>
+                              </div>
+                           </motion.div>
+                        );
+                     })}
+                  </div>
+               </div>
+               
+            </div>
+         </div>
+      </section>
+
+      {/* LAST BANNER SECTION (CTA) */}
+      <section className="relative w-full px-6 lg:px-12 xl:px-20 pb-8 pt-16">
+         <div className="w-full bg-[#0a100d] rounded-[3rem] p-16 lg:p-32 flex flex-col items-center justify-center text-center relative overflow-hidden shadow-2xl">
+            {/* Gradient Glow */}
+            <div className="absolute inset-0 bg-gradient-to-b from-[#00cc50]/10 to-transparent pointer-events-none"></div>
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-[400px] bg-[radial-gradient(ellipse_at_top_center,rgba(0,204,80,0.6)_0%,transparent_70%)] pointer-events-none"></div>
+            
+            <motion.h2 
+               initial={{ opacity: 0, y: 20 }}
+               whileInView={{ opacity: 1, y: 0 }}
+               viewport={{ once: true }}
+               transition={{ duration: 0.6 }}
+               className="relative text-4xl md:text-5xl lg:text-6xl font-black text-white mb-6 tracking-tight z-10"
+            >
+               Ready to transform your communication?
+            </motion.h2>
+            <motion.p 
+               initial={{ opacity: 0, y: 20 }}
+               whileInView={{ opacity: 1, y: 0 }}
+               viewport={{ once: true }}
+               transition={{ duration: 0.6, delay: 0.1 }}
+               className="relative text-gray-400 text-lg md:text-xl font-medium mb-10 max-w-2xl z-10"
+            >
+               Join thousands of forward-thinking professionals who are automating and scaling their customer communication in minutes.
+            </motion.p>
+            <motion.button 
+               initial={{ opacity: 0, y: 20 }}
+               whileInView={{ opacity: 1, y: 0 }}
+               whileHover={{ scale: 1.05, y: -5, transition: hoverSpring }}
+               whileTap={{ scale: 0.95 }}
+               viewport={{ once: true }}
+               transition={{ duration: 0.6, delay: 0.2 }}
+               className="relative bg-white text-gray-900 font-bold px-8 py-4 rounded-full text-lg hover:shadow-[0_20px_40px_rgba(255,255,255,0.15)] z-10"
+            >
+               Start for free
+            </motion.button>
+         </div>
+      </section>
+
+      {/* FOOTER SECTION */}
+      <section className="relative w-full px-6 lg:px-12 xl:px-20 pb-16 pt-8 overflow-hidden">
+         <div className="w-full bg-white rounded-[3rem] p-10 lg:p-16 border border-gray-100 shadow-[0_8px_40px_rgba(0,0,0,0.04)] relative overflow-hidden">
+            
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 relative z-10">
+               
+               {/* Row 1 - Left Column (Brand) */}
+               <div className="lg:col-span-5 flex flex-col">
+                  {/* Logo */}
+                  <div className="flex items-center gap-3 cursor-pointer group/logo w-fit mb-6">
+                     <div className="w-10 h-10 rounded-full bg-black flex items-center justify-center shadow-md group-hover/logo:-rotate-12 group-hover/logo:scale-110 transition-transform duration-300">
+                        <span className="text-[#00E559] font-black text-xl">W</span>
+                     </div>
+                     <span className="text-2xl font-black tracking-tight text-gray-900">Whatsi<span className="text-[#00cc50]">Pro</span></span>
+                  </div>
+                  <p className="text-sm text-gray-500 font-medium leading-relaxed max-w-sm mb-8">
+                     Whatsi empowers teams to transform raw communication data into clear, compelling conversations — making insights easier to share, understand, and act on.
+                  </p>
+                  <div className="flex gap-4">
+                     <a href="#" className="w-10 h-10 rounded-full flex items-center justify-center bg-gray-50 hover:bg-[#00cc50]/10 text-gray-600 hover:text-[#00cc50] hover:-translate-y-1 transition-all"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"></path></svg></a>
+                     <a href="#" className="w-10 h-10 rounded-full flex items-center justify-center bg-gray-50 hover:bg-[#00cc50]/10 text-gray-600 hover:text-[#00cc50] hover:-translate-y-1 transition-all"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg></a>
+                     <a href="#" className="w-10 h-10 rounded-full flex items-center justify-center bg-gray-50 hover:bg-[#00cc50]/10 text-gray-600 hover:text-[#00cc50] hover:-translate-y-1 transition-all"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z"></path><rect x="2" y="9" width="4" height="12"></rect><circle cx="4" cy="4" r="2"></circle></svg></a>
+                     <a href="#" className="w-10 h-10 rounded-full flex items-center justify-center bg-gray-50 hover:bg-[#00cc50]/10 text-gray-600 hover:text-[#00cc50] hover:-translate-y-1 transition-all"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.02c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A4.8 4.8 0 0 0 8 18v4"></path></svg></a>
+                  </div>
+               </div>
+
+               {/* Row 1 - Right Columns (Links) */}
+               <div className="lg:col-span-7 grid grid-cols-2 md:grid-cols-3 gap-8">
+                  <div className="flex flex-col gap-5">
+                     <h4 className="font-extrabold text-gray-900 mb-2">Product</h4>
+                     {['Features', 'Pricing', 'Integrations', 'Changelog'].map((link) => (
+                        <a key={link} href="#" className="text-sm font-bold text-gray-500 hover:text-[#00cc50] transition-colors">{link}</a>
+                     ))}
+                  </div>
+                  <div className="flex flex-col gap-5">
+                     <h4 className="font-extrabold text-gray-900 mb-2">Resources</h4>
+                     {['Documentation', 'Tutorials', 'Blog', 'Support'].map((link) => (
+                        <a key={link} href="#" className="text-sm font-bold text-gray-500 hover:text-[#00cc50] transition-colors">{link}</a>
+                     ))}
+                  </div>
+                  <div className="flex flex-col gap-5">
+                     <h4 className="font-extrabold text-gray-900 mb-2">Company</h4>
+                     {['About', 'Careers', 'Contact', 'Partners'].map((link) => (
+                        <a key={link} href="#" className="text-sm font-bold text-gray-500 hover:text-[#00cc50] transition-colors">{link}</a>
+                     ))}
+                  </div>
+               </div>
+
+            </div>
+
+            {/* Row 2 - Bottom Row */}
+            <div className="mt-20 pt-8 border-t border-gray-100 flex flex-col md:flex-row justify-between items-center gap-6 relative z-10">
+               <div className="text-sm font-medium text-gray-500">
+                  © 2025 WhatsiPro. All rights reserved.
+               </div>
+               <div className="flex gap-6 flex-wrap justify-center">
+                  <a href="#" className="text-sm font-medium text-gray-500 hover:text-[#00cc50] underline decoration-gray-200 underline-offset-4 transition-all">Privacy Policy</a>
+                  <a href="#" className="text-sm font-medium text-gray-500 hover:text-[#00cc50] underline decoration-gray-200 underline-offset-4 transition-all">Terms of Service</a>
+                  <a href="#" className="text-sm font-medium text-gray-500 hover:text-[#00cc50] underline decoration-gray-200 underline-offset-4 transition-all">Cookies Settings</a>
+               </div>
+            </div>
+
+            {/* Huge Faded Text Background */}
+            <div className="absolute bottom-[-16%] left-0 w-full flex justify-between px-6 text-[#00cc50]/5 font-black text-[22vw] leading-[0.8] select-none pointer-events-none overflow-hidden tracking-tighter">
+               <span>W</span><span>H</span><span>A</span><span>T</span><span>S</span><span>I</span>
+            </div>
+
          </div>
       </section>
 
