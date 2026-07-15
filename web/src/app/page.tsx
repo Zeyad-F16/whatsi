@@ -53,6 +53,9 @@ export default function Home() {
   // Anti-Ban Tabs State
   const [activeBanTab, setActiveBanTab] = React.useState(0);
 
+  // Pricing State
+  const [isYearly, setIsYearly] = React.useState(false);
+
   const [supportChats, setSupportChats] = React.useState([
     {
       id: 0,
@@ -1887,6 +1890,169 @@ export default function Home() {
                </div>
             </div>
 
+         </div>
+      </section>
+
+      {/* PRICING SECTION */}
+      <section className="relative w-full py-32 bg-transparent overflow-hidden">
+         {/* Minimal Floating Background Icons (Only 3) */}
+         <div className="absolute inset-0 pointer-events-none">
+            <Star className="absolute top-[15%] right-[10%] w-16 h-16 text-[#00cc50]/10 rotate-12" />
+            <Zap className="absolute bottom-[25%] left-[8%] w-24 h-24 text-[#00cc50]/10 -rotate-12" />
+            <Globe className="absolute top-[50%] right-[5%] w-12 h-12 text-[#00cc50]/10 -rotate-[20deg]" />
+         </div>
+
+         <div className="relative z-10 max-w-7xl mx-auto px-6">
+            <div className="text-center max-w-3xl mx-auto mb-20">
+               <h2 className="text-4xl md:text-5xl font-black text-gray-900 mb-6 tracking-tight">
+                  Simple, transparent pricing
+               </h2>
+               <p className="text-gray-500 text-lg font-medium mb-10">
+                  Choose the perfect plan for your business needs. No hidden fees.
+               </p>
+               
+               {/* Modern Billing Switcher */}
+               <div className="flex justify-center mb-8">
+                  <div className="relative flex items-center bg-gray-100 p-1.5 rounded-full border border-gray-200/60 shadow-inner">
+                     {/* Sliding background */}
+                     <div 
+                        className="absolute top-1.5 bottom-1.5 w-[140px] bg-white rounded-full shadow-sm border border-gray-200/50 transition-all duration-300 cubic-bezier(0.4, 0, 0.2, 1)"
+                        style={{ left: isYearly ? '146px' : '6px' }}
+                     />
+                     <button 
+                        onClick={() => setIsYearly(false)}
+                        className={`relative z-10 w-[140px] h-11 text-sm font-bold rounded-full transition-colors duration-300 ${!isYearly ? 'text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                     >
+                        Monthly
+                     </button>
+                     <button 
+                        onClick={() => setIsYearly(true)}
+                        className={`relative z-10 w-[140px] h-11 text-sm font-bold rounded-full flex items-center justify-center gap-2 transition-colors duration-300 ${isYearly ? 'text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                     >
+                        Yearly <span className="bg-[#00cc50]/15 text-[#00cc50] text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">Save 20%</span>
+                     </button>
+                  </div>
+               </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+               
+               {/* Free Plan */}
+               <div className="group relative h-full rounded-[2rem] overflow-hidden p-[3px] shadow-sm hover:shadow-2xl transition-all duration-500">
+                  {/* Default static border */}
+                  <div className="absolute inset-0 bg-gray-200 group-hover:opacity-0 transition-opacity duration-500" />
+                  {/* Spinning gradient */}
+                  <div className="absolute -inset-[150%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,transparent_0%,#00cc50_50%,transparent_100%)] opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                  
+                  {/* Inner Content */}
+                  <div className="relative z-10 h-full flex flex-col bg-white rounded-[calc(2rem-3px)] p-10">
+                     <h3 className="text-xl font-bold text-gray-900 mb-2">Free</h3>
+                     <p className="text-gray-500 text-sm font-medium mb-8 min-h-[56px]">
+                        Perfect for individuals and early-stage projects.
+                     </p>
+                     <div className="mb-10 flex items-end gap-1">
+                        <span className="text-6xl font-black text-gray-900 tracking-tighter">$0</span>
+                        <span className="text-gray-500 text-sm font-bold mb-2 uppercase tracking-wide">/ mo</span>
+                     </div>
+                     <button className="w-full bg-white text-gray-900 border-2 border-gray-200 font-bold py-4 rounded-full mb-12 hover:border-[#00cc50] hover:text-[#00cc50] hover:shadow-[0_8px_20px_rgba(0,204,80,0.12)] hover:-translate-y-1 active:scale-[0.98] transition-all duration-300">
+                        Get started
+                     </button>
+                     <ul className="flex flex-col gap-4 mt-auto">
+                        {[
+                           "1 WhatsApp Number",
+                           "100 Messages per day",
+                           "Basic Webhook integration",
+                           "Community Support",
+                           "WhatsiPro watermark included"
+                        ].map((feature, i) => (
+                           <li key={i} className="flex items-start gap-3 text-sm text-gray-600 font-medium">
+                              <CheckCircle2 className="w-4 h-4 text-[#00cc50]/80 flex-shrink-0 mt-0.5" />
+                              {feature}
+                           </li>
+                        ))}
+                     </ul>
+                  </div>
+               </div>
+
+               {/* Premium Plan */}
+               <div className="group relative h-full rounded-[2.5rem] overflow-hidden p-[3px] md:-mt-8 md:-mb-8 z-10 shadow-xl hover:shadow-[0_30px_80px_rgba(0,204,80,0.2)] transition-all duration-500">
+                  {/* Default static border */}
+                  <div className="absolute inset-0 bg-[#00cc50] group-hover:opacity-0 transition-opacity duration-500" />
+                  {/* Spinning gradient */}
+                  <div className="absolute -inset-[150%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,transparent_0%,#33ff77_50%,transparent_100%)] opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                  
+                  {/* Inner Content */}
+                  <div className="relative z-10 h-full flex flex-col bg-white rounded-[calc(2.5rem-3px)] p-12">
+                     <div className="absolute top-8 right-8 bg-[#00cc50]/10 text-[#00cc50] px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest border border-[#00cc50]/20">
+                        Popular
+                     </div>
+                     <h3 className="text-xl font-bold text-[#00cc50] mb-2">Premium</h3>
+                     <p className="text-gray-500 text-sm font-medium mb-8 min-h-[56px] pr-12">
+                        Best for teams that need branding, collaboration, and flexibility.
+                     </p>
+                     <div className="mb-10 flex items-end gap-1">
+                        <span className="text-6xl font-black text-gray-900 tracking-tighter">${isYearly ? '9' : '12'}</span>
+                        <span className="text-gray-500 text-sm font-bold mb-2 uppercase tracking-wide">/ mo</span>
+                     </div>
+                     <button className="w-full bg-[#00cc50] text-white font-bold py-4 rounded-full mb-12 shadow-md hover:bg-[#00b347] hover:shadow-[0_15px_30px_-5px_rgba(0,204,80,0.4)] hover:-translate-y-1 active:scale-[0.98] transition-all duration-300">
+                        Upgrade to premium
+                     </button>
+                     <ul className="flex flex-col gap-4 mt-auto">
+                        {[
+                           "5 WhatsApp Numbers",
+                           "Unlimited Messages",
+                           "Advanced API & Webhooks",
+                           "Multi-agent Dashboard",
+                           "Priority Support"
+                        ].map((feature, i) => (
+                           <li key={i} className="flex items-start gap-3 text-sm text-gray-600 font-medium">
+                              <CheckCircle2 className="w-4 h-4 text-[#00cc50] flex-shrink-0 mt-0.5" />
+                              <span className="text-gray-800 font-semibold">{feature}</span>
+                           </li>
+                        ))}
+                     </ul>
+                  </div>
+               </div>
+
+               {/* Enterprise Plan */}
+               <div className="group relative h-full rounded-[2rem] overflow-hidden p-[3px] shadow-sm hover:shadow-2xl transition-all duration-500">
+                  {/* Default static border */}
+                  <div className="absolute inset-0 bg-gray-200 group-hover:opacity-0 transition-opacity duration-500" />
+                  {/* Spinning gradient */}
+                  <div className="absolute -inset-[150%] animate-[spin_3s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,transparent_0%,#00cc50_50%,transparent_100%)] opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                  
+                  {/* Inner Content */}
+                  <div className="relative z-10 h-full flex flex-col bg-white rounded-[calc(2rem-3px)] p-10">
+                     <h3 className="text-xl font-bold text-gray-900 mb-2">Enterprise</h3>
+                     <p className="text-gray-500 text-sm font-medium mb-8 min-h-[56px]">
+                        For client-facing teams, agencies, and advanced reporting needs.
+                     </p>
+                     <div className="mb-10 flex items-end gap-1">
+                        <span className="text-6xl font-black text-gray-900 tracking-tighter">${isYearly ? '29' : '39'}</span>
+                        <span className="text-gray-500 text-sm font-bold mb-2 uppercase tracking-wide">/ mo</span>
+                     </div>
+                     <button className="w-full bg-white text-gray-900 border-2 border-gray-200 font-bold py-4 rounded-full mb-12 hover:border-[#00cc50] hover:text-[#00cc50] hover:shadow-[0_8px_20px_rgba(0,204,80,0.12)] hover:-translate-y-1 active:scale-[0.98] transition-all duration-300">
+                        Upgrade to enterprise
+                     </button>
+                     <ul className="flex flex-col gap-4 mt-auto">
+                        {[
+                           "Everything in Premium, plus:",
+                           "Unlimited WhatsApp Numbers",
+                           "Dedicated Server IP",
+                           "SAML SSO & Role Permissions",
+                           "White-label Dashboard",
+                           "24/7 Dedicated Account Manager"
+                        ].map((feature, i) => (
+                           <li key={i} className="flex items-start gap-3 text-sm text-gray-600 font-medium">
+                              <CheckCircle2 className="w-4 h-4 text-[#00cc50]/80 flex-shrink-0 mt-0.5" />
+                              <span className={i === 0 ? "font-bold text-gray-900" : ""}>{feature}</span>
+                           </li>
+                        ))}
+                     </ul>
+                  </div>
+               </div>
+
+            </div>
          </div>
       </section>
 
