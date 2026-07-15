@@ -3,10 +3,6 @@
 @tailwind utilities;
 
 @layer base {
-  * {
-    cursor: none !important;
-  }
-  
   html, body {
     -ms-overflow-style: none;
     scrollbar-width: none;

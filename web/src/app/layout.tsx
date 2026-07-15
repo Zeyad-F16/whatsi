@@ -1,10 +1,15 @@
-import { Plus_Jakarta_Sans } from "next/font/google";
+import { Plus_Jakarta_Sans, Tajawal } from "next/font/google";
 import "./globals.css";
-import CustomCursor from "../components/CustomCursor";
 
 const jakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
   variable: "--font-jakarta",
+});
+
+const tajawal = Tajawal({
+  subsets: ["arabic"],
+  weight: ["300", "400", "500", "700", "800", "900"],
+  variable: "--font-tajawal",
 });
 
 export const metadata = {
@@ -20,12 +25,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="en"
       translate="no"
       dir="ltr"
-      className={`${jakarta.variable} h-full antialiased`}
+      className={`${jakarta.variable} ${tajawal.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col font-sans bg-[#f4f7f5] text-gray-900" suppressHydrationWarning>
+      <body className="min-h-full flex flex-col font-tajawal bg-[#f4f7f5] text-gray-900" suppressHydrationWarning>
         <SmoothScrolling>
-          <CustomCursor />
           {children}
         </SmoothScrolling>
       </body>
