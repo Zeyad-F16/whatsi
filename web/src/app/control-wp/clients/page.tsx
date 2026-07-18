@@ -19,6 +19,8 @@ interface Client {
   notes: string;
   is_expired: number;
   days_remaining: number;
+  user_name?: string;
+  user_email?: string;
 }
 
 export default function ClientsPage() {
@@ -258,6 +260,12 @@ export default function ClientsPage() {
                     <td className="px-8 py-5">
                       <div className="font-extrabold text-gray-900 text-base">{client.name}</div>
                       <div className="text-sm font-bold text-gray-400 mt-1">{client.phone || '-'}</div>
+                      {client.user_email && (
+                        <div className="text-xs font-bold text-blue-500 mt-1.5 flex items-center gap-1">
+                          <UserPlus className="w-3.5 h-3.5" />
+                          <span>مرتبط بحساب: {client.user_email}</span>
+                        </div>
+                      )}
                     </td>
                     <td className="px-8 py-5">
                       <span className="bg-gray-50 text-gray-600 px-3 py-1 rounded-lg text-xs font-bold border border-gray-100">

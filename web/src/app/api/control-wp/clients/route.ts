@@ -32,13 +32,15 @@ export async function GET(request: Request) {
   try {
     const clients = db.prepare(`
       SELECT 
-        id, name, phone, plan_type, amount_paid,
-        activation_code, code_used, machine_id,
-        start_date, expiry_date, is_active, notes, created_at,
-        CASE WHEN date('now', 'localtime') > expiry_date THEN 1 ELSE 0 END AS is_expired,
-        CAST((julianday(expiry_date) - julianday('now', 'localtime')) AS INTEGER) AS days_remaining
-      FROM clients
-      ORDER BY created_at DESC
+        c.id, c.name, c.phone, c.plan_type, c.amount_paid,
+        c.activation_code, c.code_used, c.machine_id,
+        c.start_date, c.expiry_date, c.is_active, c.notes, c.created_at,
+        u.email as user_email, u.name as user_name,
+        CASE WHEN date('now', 'localtime') > c.expiry_date THEN 1 ELSE 0 END AS is_expired,
+        CAST((julianday(c.expiry_date) - julianday('now', 'localtime')) AS INTEGER) AS days_remaining
+      FROM clients c
+      LEFT JOIN users u ON c.user_id = u.id
+      ORDER BY c.created_at DESC
     `).all();
 
     return NextResponse.json({ success: true, data: clients });

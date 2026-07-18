@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import db from '@/lib/db';
 import { rateLimit } from '@/lib/rate-limit';
+import { adminLoginSchema } from '@/lib/validations';
 import { cookies } from 'next/headers';
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -12,7 +13,15 @@ if (!JWT_SECRET) {
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { username, password } = body;
+  const validationResult = adminLoginSchema.safeParse(body);
+  
+  if (!validationResult.success) {
+    return NextResponse.json(
+      { success: false, message: validationResult.error.errors[0].message },
+      { status: 400 }
+    );
+  }
+  const { username, password } = validationResult.data;
 
   const ip = request.headers.get('x-forwarded-for') || request.headers.get('remote-addr') || 'unknown';
   const limitResult = rateLimit(`login_${ip}`, 6, 10 * 60 * 1000);

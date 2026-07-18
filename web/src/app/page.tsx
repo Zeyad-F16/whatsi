@@ -61,6 +61,20 @@ export default function Home() {
   // FAQ State
   const [openFaqIndex, setOpenFaqIndex] = React.useState<number | null>(0);
 
+  // Auth State
+  const [user, setUser] = React.useState<{name: string, email: string} | null>(null);
+
+  React.useEffect(() => {
+    fetch('/api/auth/me')
+      .then(res => res.json())
+      .then(data => {
+        if (data.authenticated) {
+          setUser(data.user);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const faqs = [
     {
       question: "How long does it take to get WhatsApp API approval?",
@@ -188,14 +202,29 @@ export default function Home() {
             </div>
           </div>
           
-          <motion.div whileHover={{ scale: 1.05 }} className="flex items-center gap-3 pl-2 cursor-pointer group/user">
-            <div className="hidden sm:flex flex-col items-end pr-2">
-              <span className="text-sm font-bold text-gray-900 group-hover/user:text-[#00cc50] transition-colors">Login</span>
-            </div>
-            <div className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center border border-gray-100 group-hover/user:bg-[#00cc50] transition-all duration-300">
-              <User className="w-4 h-4 text-gray-900 group-hover/user:text-white transition-colors duration-300" />
-            </div>
-          </motion.div>
+          {user ? (
+            <a href="/dashboard" className="block">
+              <motion.div whileHover={{ scale: 1.05 }} className="flex items-center gap-3 pl-2 cursor-pointer group/user">
+                <div className="hidden sm:flex flex-col items-end pr-2">
+                  <span className="text-sm font-bold text-gray-900 group-hover/user:text-[#00cc50] transition-colors">{user.name.split(' ')[0]}</span>
+                </div>
+                <div className="w-10 h-10 rounded-full bg-green-100 shadow-sm flex items-center justify-center border border-green-200 group-hover/user:bg-[#00cc50] transition-all duration-300">
+                  <span className="text-green-700 font-bold group-hover/user:text-white">{user.name.charAt(0).toUpperCase()}</span>
+                </div>
+              </motion.div>
+            </a>
+          ) : (
+            <a href="/login" className="block">
+              <motion.div whileHover={{ scale: 1.05 }} className="flex items-center gap-3 pl-2 cursor-pointer group/user">
+                <div className="hidden sm:flex flex-col items-end pr-2">
+                  <span className="text-sm font-bold text-gray-900 group-hover/user:text-[#00cc50] transition-colors">Login</span>
+                </div>
+                <div className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center border border-gray-100 group-hover/user:bg-[#00cc50] transition-all duration-300">
+                  <User className="w-4 h-4 text-gray-900 group-hover/user:text-white transition-colors duration-300" />
+                </div>
+              </motion.div>
+            </a>
+          )}
         </div>
       </header>
 
@@ -252,17 +281,19 @@ export default function Home() {
               </p>
 
               <div className="flex flex-wrap items-center gap-4">
-                <motion.button 
-                  whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                  className="group/btn relative inline-flex items-center justify-center gap-3 px-8 py-4 rounded-full bg-[#00cc50] text-white font-bold text-base hover:bg-[#00b346] shadow-[0_8px_20px_rgba(0,204,80,0.3)] overflow-hidden"
-                >
-                  <span className="relative z-10">Start Free Trial</span>
-                  <div className="relative z-10 w-7 h-7 rounded-full bg-black/10 flex items-center justify-center transform group-hover/btn:translate-x-1 group-hover/btn:-rotate-45 transition-transform duration-300">
-                    <ArrowUpRight className="w-4 h-4" />
-                  </div>
-                  {/* Sweep hover effect */}
-                  <div className="absolute inset-0 h-full w-0 bg-white/20 transition-all duration-300 ease-out group-hover/btn:w-full"></div>
-                </motion.button>
+                <a href={user ? "/dashboard" : "/register"} className="block">
+                  <motion.button 
+                    whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                    className="group/btn relative inline-flex items-center justify-center gap-3 px-8 py-4 rounded-full bg-[#00cc50] text-white font-bold text-base hover:bg-[#00b346] shadow-[0_8px_20px_rgba(0,204,80,0.3)] overflow-hidden"
+                  >
+                    <span className="relative z-10">{user ? "Go to Dashboard" : "Start Free Trial"}</span>
+                    <div className="relative z-10 w-7 h-7 rounded-full bg-black/10 flex items-center justify-center transform group-hover/btn:translate-x-1 group-hover/btn:-rotate-45 transition-transform duration-300">
+                      <ArrowUpRight className="w-4 h-4" />
+                    </div>
+                    {/* Sweep hover effect */}
+                    <div className="absolute inset-0 h-full w-0 bg-white/20 transition-all duration-300 ease-out group-hover/btn:w-full"></div>
+                  </motion.button>
+                </a>
                 <motion.button 
                   whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                   className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-white hover:bg-gray-50 border-2 border-gray-100 text-gray-900 font-bold text-base shadow-sm"

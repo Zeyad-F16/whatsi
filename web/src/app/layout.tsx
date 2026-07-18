@@ -26,10 +26,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="en"
       translate="no"
       dir="ltr"
-      className={`${jakarta.variable} ${tajawal.variable} h-full antialiased`}
+      className={`${jakarta.variable} ${tajawal.variable} antialiased`}
       suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col font-tajawal bg-[#f4f7f5] text-gray-900" suppressHydrationWarning>
+      <body className="font-tajawal bg-[#f4f7f5] text-gray-900" suppressHydrationWarning>
         <SmoothScrolling>
           <CustomCursor />
           {children}

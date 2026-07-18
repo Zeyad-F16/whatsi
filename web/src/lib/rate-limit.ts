@@ -1,42 +1,22 @@
-// In-memory rate limiting mechanism
+const rateLimitMap = new Map<string, { count: number, resetTime: number }>();
 
-interface RateLimitRecord {
-  count: number;
-  resetTime: number;
-}
-
-const rateLimits = new Map<string, RateLimitRecord>();
-
-export function rateLimit(identifier: string, limit: number, windowMs: number) {
+export function rateLimit(ip: string, maxRequests: number = 10, windowMs: number = 15 * 60 * 1000): { success: boolean, remaining: number } {
   const now = Date.now();
-  const record = rateLimits.get(identifier);
+  const record = rateLimitMap.get(ip);
 
-  // If no record exists or the window has expired, create a new record
-  if (!record || now > record.resetTime) {
-    rateLimits.set(identifier, {
-      count: 1,
-      resetTime: now + windowMs,
-    });
-    return { success: true, count: 1 };
+  // If no record or window expired, create a new one
+  if (!record || record.resetTime < now) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + windowMs });
+    return { success: true, remaining: maxRequests - 1 };
   }
 
-  // If the limit has been reached
-  if (record.count >= limit) {
-    return { success: false, count: record.count };
+  // If within window
+  if (record.count < maxRequests) {
+    record.count += 1;
+    rateLimitMap.set(ip, record);
+    return { success: true, remaining: maxRequests - record.count };
   }
 
-  // Otherwise, increment the count
-  record.count += 1;
-  rateLimits.set(identifier, record);
-  return { success: true, count: record.count };
+  // Rate limit exceeded
+  return { success: false, remaining: 0 };
 }
-
-// Clean up expired records every 5 minutes to prevent memory leaks
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, record] of rateLimits.entries()) {
-    if (now > record.resetTime) {
-      rateLimits.delete(key);
-    }
-  }
-}, 5 * 60 * 1000);
