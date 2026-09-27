@@ -11,6 +11,12 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "electron": "^41.7.1"
+    "electron": "^41.7.1",
+    "electron-rebuild": "^3.2.9"
+  },
+  "dependencies": {
+    "@google/genai": "^2.24.0",
+    "better-sqlite3": "^12.11.1",
+    "dotenv": "18.0.4"
   }
 }

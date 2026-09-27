@@ -1,1 +1,4 @@
 node_modules
+whatsi_messages.db
+audio_messages
+.env

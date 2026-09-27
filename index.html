@@ -1,48 +1,243 @@
 <!DOCTYPE html>
-<html>
+<html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <title>Whatsi</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Whatsi - مراقبة فريق المبيعات</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app-container">
-    <!-- Sidebar for Accounts -->
-    <div class="sidebar">
+    
+    <!-- ===== SIDEBAR ===== -->
+    <div class="sidebar" id="sidebar">
       <div class="logo">
-        <img src="whatsi.png" alt="Whatsi Logo" style="width: 70px; height: auto; border-radius: 12px; margin-bottom: 5px;" />
-        <h2 style="font-size: 1.2rem;">Whatsi</h2>
+        <img src="whatsi.png" alt="Whatsi Logo" />
+        <h2>Whatsi</h2>
+        <span class="logo-subtitle">مراقبة السيلز</span>
       </div>
+
+      <!-- Navigation Buttons -->
+      <div class="sidebar-nav">
+        <button class="nav-btn active" id="nav-whatsapp" onclick="switchView('whatsapp')" title="واتساب">
+          <span class="nav-icon">💬</span>
+          <span class="nav-label">واتساب</span>
+        </button>
+        <button class="nav-btn" id="nav-report" onclick="switchView('report')" title="تقرير الذكاء الاصطناعي">
+          <span class="nav-icon">🤖</span>
+          <span class="nav-label">تقرير AI</span>
+        </button>
+      </div>
+
+      <!-- Account Tabs -->
+      <div class="sidebar-section-title">الحسابات</div>
       <ul id="tab-list" class="tab-list">
         <!-- Account tabs injected here -->
       </ul>
-      <button id="add-account-btn" class="add-btn">
+
+      <!-- Stats Widget -->
+      <div class="stats-widget" id="stats-widget">
+        <div class="stat-item">
+          <span class="stat-value" id="stat-chats">0</span>
+          <span class="stat-label">محادثة</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+          <span class="stat-value" id="stat-messages">0</span>
+          <span class="stat-label">رسالة</span>
+        </div>
+      </div>
+
+      <!-- Add Account Button -->
+      <button id="add-account-btn" class="add-btn" title="إضافة حساب واتساب">
         <div class="add-btn-icon">+</div>
-        <span class="add-btn-text">أضف رقم واتساب</span>
+        <span class="add-btn-text">أضف حساب واتساب</span>
       </button>
     </div>
 
-    <!-- Main Content Area for Webviews -->
-    <div id="webview-container" class="main-content">
-      <div id="welcome-screen" class="welcome-screen">
-        <h2>مرحباً بك في منصة Whatsi</h2>
-        <p>اضغط على "أضف رقم واتساب" لربط حساب جديد.</p>
-        <p>كل رقم سيعمل في بيئة معزولة تماماً!</p>
+    <!-- ===== MAIN CONTENT ===== -->
+    <div class="main-content">
+
+      <!-- WhatsApp View -->
+      <div id="view-whatsapp" class="view active">
+        <div id="webview-container" class="webview-container">
+          <div id="welcome-screen" class="welcome-screen">
+            <div class="welcome-icon">💬</div>
+            <h2>مرحباً في Whatsi</h2>
+            <p>أضف حسابات واتساب الخاصة بفريق السيلز لبدء المراقبة</p>
+            <div class="welcome-features">
+              <div class="feature-card">
+                <span class="feature-icon">📱</span>
+                <span>حسابات متعددة</span>
+              </div>
+              <div class="feature-card">
+                <span class="feature-icon">💾</span>
+                <span>تسجيل تلقائي</span>
+              </div>
+              <div class="feature-card">
+                <span class="feature-icon">🤖</span>
+                <span>تحليل AI</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Report View -->
+      <div id="view-report" class="view">
+        <div class="report-view">
+          
+          <!-- Report Header -->
+          <div class="report-header">
+            <div class="report-header-info">
+              <h1 class="report-title">تقرير أداء فريق المبيعات</h1>
+              <p class="report-subtitle"></p>
+            </div>
+            <div class="report-header-actions">
+              <div class="report-date-picker">
+                <label for="report-date">التاريخ:</label>
+                <input type="date" id="report-date" />
+              </div>
+              <div class="report-account-filter">
+                <label for="report-account">الحساب:</label>
+                <select id="report-account">
+                  <option value="">كل الحسابات</option>
+                </select>
+              </div>
+              <button id="generate-report-btn" class="generate-btn" onclick="generateReport()">
+                <span class="generate-btn-icon">✨</span>
+                <span id="generate-btn-text">استخراج تقرير اليوم</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Report Quick Toolbar -->
+          <div class="report-toolbar">
+            <button class="toolbar-btn" onclick="testGeminiConnection()" title="فحص مفتاح وصلاحية Gemini API">
+              <span class="tb-icon">⚡</span>
+              <span>فحص اتصال Gemini</span>
+            </button>
+            <button class="toolbar-btn danger" onclick="clearTodayData()" title="مسح رسائل اليوم للبدء من جديد">
+              <span class="tb-icon">🗑️</span>
+              <span>مسح بيانات اليوم</span>
+            </button>
+          </div>
+
+          <!-- Stats Cards -->
+          <div class="stats-cards" id="report-stats-cards">
+            <div class="stat-card">
+              <div class="stat-card-icon">💬</div>
+              <div class="stat-card-value" id="card-chats">0</div>
+              <div class="stat-card-label">محادثة مع عملاء</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-card-icon">📨</div>
+              <div class="stat-card-value" id="card-messages">0</div>
+              <div class="stat-card-label">رسالة محفوظة</div>
+            </div>
+          </div>
+
+          <!-- Report Content Area -->
+          <div class="report-content-area" id="report-content-area">
+            
+            <!-- Empty State -->
+            <div class="report-empty hidden" id="report-empty">
+            </div>
+
+            <!-- Loading State -->
+            <div class="report-loading hidden" id="report-loading">
+              <div class="ai-loader">
+                <div class="ai-brain">🧠</div>
+                <div class="ai-waves">
+                  <div class="wave"></div>
+                  <div class="wave"></div>
+                  <div class="wave"></div>
+                </div>
+              </div>
+              <h3>جيمناي يحلل المحادثات الآن...</h3>
+              <p id="loading-progress">يقرأ كل الشاتات المسجلة اليوم</p>
+            </div>
+
+            <!-- Report Output -->
+            <div class="report-output hidden" id="report-output">
+              <div class="report-text" id="report-text"></div>
+              <div class="report-actions">
+                <button class="action-btn copy-btn" onclick="copyReport()">📋 نسخ التقرير</button>
+                <button class="action-btn refresh-btn" onclick="generateReport()">🔄 إعادة التحليل</button>
+              </div>
+            </div>
+
+            <!-- Error State -->
+            <div class="report-error hidden" id="report-error">
+              <div class="error-icon" id="error-icon">ℹ️</div>
+              <h3 id="error-title">تنبيه</h3>
+              <p id="error-message"></p>
+              
+              <div class="error-actions" id="error-actions-container">
+                <button class="action-btn" onclick="generateReport()">
+                  🔄 إعادة المحاولة
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== MODALS ===== -->
+
+  <!-- Add/Edit Account Modal -->
+  <div id="name-modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeModal()"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">إضافة حساب جديد</h3>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="input-label">اسم ممثل المبيعات أو الحساب</label>
+        <input 
+          type="text" 
+          id="account-name-input" 
+          placeholder="مثال: أحمد - السيلز" 
+          class="modal-input"
+          autocomplete="off"
+        />
+        <p class="input-hint">سيظهر هذا الاسم في التقارير لتمييز أداء كل موظف</p>
+      </div>
+      <div class="modal-footer">
+        <button id="cancel-name-btn" class="modal-btn cancel" onclick="closeModal()">إلغاء</button>
+        <button id="save-name-btn" class="modal-btn save">حفظ وإضافة</button>
       </div>
     </div>
   </div>
 
-  <!-- Name Input Modal -->
-  <div id="name-modal" class="modal hidden">
-    <div class="modal-content">
-      <h3 id="modal-title">إضافة حساب جديد</h3>
-      <input type="text" id="account-name-input" placeholder="اكتب اسم الحساب (مثال: المبيعات)" />
-      <div class="modal-actions">
-        <button id="cancel-name-btn" class="cancel-btn">إلغاء</button>
-        <button id="save-name-btn" class="save-btn">حفظ وإضافة</button>
+  <!-- Messages Preview Modal -->
+  <div id="messages-modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeMessagesModal()"></div>
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h3 id="messages-modal-title">📋 سجل الرسائل الملتقطة في قاعدة البيانات</h3>
+        <button class="modal-close" onclick="closeMessagesModal()">✕</button>
+      </div>
+      <div class="modal-body modal-scrollable" id="messages-list-container">
+        <!-- Messages rendered here -->
+      </div>
+      <div class="modal-footer">
+        <span id="messages-count-label" class="modal-footer-info">0 رسالة</span>
+        <button class="modal-btn cancel" onclick="closeMessagesModal()">إغلاق</button>
       </div>
     </div>
   </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
 
   <script src="renderer.js"></script>
 </body>
