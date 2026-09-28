@@ -64,6 +64,9 @@ async function analyzeDailyChats(formattedChats, stats, reportDate, audioSummary
 - إجمالي المحادثات مع العملاء: ${stats.chats || 0}
 - إجمالي عدد العملاء المختلفين الذين تم التواصل معهم: ${stats.chats || 0}
 - إجمالي الرسائل المرسلة والمستقبلة: ${stats.total_messages || stats.messages || 0}
+- الرسائل الصادرة من السيلز: ${stats.sales_messages || 0}
+- الرسائل الواردة من العملاء: ${stats.customer_messages || 0}
+الأعداد أعلاه محسوبة مباشرة من قاعدة البيانات بعد تطبيق فلتر السيلز والتاريخ المختارين. اعرضها كما هي دون إعادة تقديرها أو استبدالها بعدّ محتوى التقرير.
 
 ## المحادثات الكاملة (تتضمن بيانات سرعة الرد لكل سيلز):
 ${formattedChats}
@@ -210,7 +213,7 @@ async function transcribeAudio(filePath, sender, repName, customerName) {
     return { success: false, error: 'ملف الصوت غير موجود' };
   }
 
-  const audioData = fs.readFileSync(filePath).toString('base64');
+  const audioData = (await fs.promises.readFile(filePath)).toString('base64');
   const senderLabel = sender === 'sales'
     ? `ممثل المبيعات (${repName})`
     : `العميل (${customerName})`;
@@ -270,16 +273,13 @@ async function transcribeAudio(filePath, sender, repName, customerName) {
       };
     } catch (err) {
       const msg = err.message || '';
-      // إذا كانت quota أو server error — ننتظر أطول قبل المحاولة التالية
+      // انتقل مباشرة إلى الموديل الاحتياطي لتقليل انتظار تفريغ الصوت.
       if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED')) {
-        console.warn(`[Gemini] Quota hit on ${model} — waiting 15s before next model...`);
-        await sleep(15000);
+        console.warn(`[Gemini] Quota hit on ${model} — trying the next model immediately...`);
       } else if (msg.includes('503') || msg.includes('UNAVAILABLE')) {
-        console.warn(`[Gemini] ${model} unavailable — waiting 3s...`);
-        await sleep(3000);
+        console.warn(`[Gemini] ${model} unavailable — trying the next model immediately...`);
       } else {
         console.warn(`[Gemini] Audio model ${model} failed: ${msg.slice(0, 120)}`);
-        await sleep(1000);
       }
     }
   }

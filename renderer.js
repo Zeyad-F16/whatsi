@@ -28,6 +28,31 @@ let editingAccountId = null;
 let currentView = 'whatsapp';
 let reportData = null;
 
+function normalizeReportPhone(value) {
+  const western = String(value || '').replace(/[٠-٩۰-۹]/g, digit => {
+    const code = digit.charCodeAt(0);
+    return String(code >= 0x06f0 ? code - 0x06f0 : code - 0x0660);
+  });
+  let digits = western.replace(/\D/g, '');
+  if (!digits) return { display: String(value || ''), copy: '' };
+  if (/^01[0125]\d{8}$/.test(digits)) digits = `20${digits.slice(1)}`;
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  const isInternational = western.trim().startsWith('+') || digits.length >= 11;
+  const copy = isInternational ? `+${digits}` : digits;
+  let display = copy;
+  if (digits.startsWith('20') && digits.length === 12) {
+    const local = digits.slice(2);
+    display = `+20 ${local.slice(0, 2)} ${local.slice(2, 6)} ${local.slice(6)}`;
+  } else if (digits.startsWith('966') && digits.length === 12) {
+    const local = digits.slice(3);
+    display = `+966 ${local.slice(0, 2)} ${local.slice(2, 5)} ${local.slice(5)}`;
+  } else if (digits.startsWith('971') && digits.length === 12) {
+    const local = digits.slice(3);
+    display = `+971 ${local.slice(0, 2)} ${local.slice(2, 5)} ${local.slice(5)}`;
+  }
+  return { display, copy };
+}
+
 // ===== حفظ الحسابات عبر IPC =====
 async function persistAccounts() {
   await ipcRenderer.invoke('save-accounts', accounts);
@@ -36,7 +61,8 @@ async function persistAccounts() {
 // ===== Initialization =====
 async function init() {
   // تعيين تاريخ اليوم كقيمة افتراضية لفلتر التقرير
-  reportDateInput.value = new Date().toISOString().split('T')[0];
+  const localToday = new Date();
+  reportDateInput.value = `${localToday.getFullYear()}-${String(localToday.getMonth() + 1).padStart(2, '0')}-${String(localToday.getDate()).padStart(2, '0')}`;
   
   // تحميل الحسابات المحفوظة من الملف الدائم
   accounts = await ipcRenderer.invoke('load-accounts');
@@ -57,8 +83,9 @@ async function init() {
   setInterval(refreshStats, 30000);
   
   // الاستماع لتحديثات عداد الرسائل من الـ Main Process
-  ipcRenderer.on('message-count-updated', (event, stats) => {
-    updateStatsDisplay(stats);
+  ipcRenderer.on('message-count-updated', () => {
+    // إعادة القراءة بالفلاتر الحالية بدل استبدالها بإحصائيات غير مفلترة من Main.
+    refreshStats();
   });
 }
 
@@ -373,7 +400,27 @@ function displayReport(result) {
 
   // تحويل Markdown إلى HTML بسيط لعرض أفضل
   const formattedReport = formatMarkdown(result.report);
-  reportText.innerHTML = formattedReport;
+  const customerNumbers = result.customerNumbers || [];
+  const contactsHtml = customerNumbers.length
+    ? `<section class="customer-phone-directory" dir="rtl"><strong>أرقام واتساب الملتقطة من واتساب</strong><div class="customer-phone-list">${customerNumbers.map(contact => {
+        const name = escapeHtml(contact.customer_name || 'عميل');
+        const account = escapeHtml(contact.account_name || '');
+        const { display: phone, copy: copyValue } = normalizeReportPhone(contact.customer_phone);
+        return `<div class="customer-phone-row"><span>${name}${account ? ` — ${account}` : ''}</span><bdi dir="ltr" class="phone-number">${escapeHtml(phone)}</bdi><button type="button" class="copy-canonical-phone" data-phone="${escapeHtml(copyValue)}">نسخ الرقم</button></div>`;
+      }).join('')}</div></section>`
+    : '';
+  reportText.innerHTML = contactsHtml + formattedReport;
+  reportText.onclick = async event => {
+    const button = event.target.closest('.copy-canonical-phone');
+    if (!button) return;
+    const phone = button.dataset.phone;
+    try {
+      await navigator.clipboard.writeText(phone);
+      showToast('تم نسخ الرقم الملتقط من واتساب. يمكنك لصقه في واتساب.', 'success');
+    } catch (error) {
+      showToast('تعذر النسخ تلقائيًا. حدّد الرقم وانسخه يدويًا.', 'error');
+    }
+  };
 }
 
 /**
@@ -381,7 +428,7 @@ function displayReport(result) {
  */
 function formatMarkdown(text) {
   if (!text) return '';
-  
+
   return text
     // العناوين
     .replace(/^### (.+)$/gm, '<h3 class="report-h3">$1</h3>')
@@ -401,7 +448,14 @@ function formatMarkdown(text) {
     // التفاف كل شيء في فقرات
     .replace(/^(?!<[h|l|p|h])/gm, '')
     // تنظيف القوائم
-    .replace(/(<li>.*<\/li>\n?)+/g, match => `<ul class="report-list">${match}</ul>`);
+    .replace(/(<li>.*<\/li>\n?)+/g, match => `<ul class="report-list">${match}</ul>`)
+    // اعزل الأرقام بعد إكمال تحويل Markdown كي لا يتأثر اتجاهها بسياق العربية.
+    .replace(/\+\s*\d[\d\s().-]*\d/g, phone => {
+      const digitCount = (phone.match(/\d/g) || []).length;
+      if (digitCount < 8) return phone;
+      const exactPhone = phone.trim();
+      return `<bdi dir="ltr" class="phone-number">${exactPhone}</bdi>`;
+    });
 }
 
 function showReportError(message) {
@@ -466,20 +520,22 @@ window.testGeminiConnection = async function() {
  */
 window.clearTodayData = async function() {
   const date = reportDateInput.value || null;
+  const accountId = reportAccountSelect.value || null;
+  const accountName = accountId ? accounts.find(account => account.id === accountId)?.name : 'كل الحسابات';
   const label = date || 'اليوم';
-  if (!confirm(`هل تريد مسح جميع رسائل ${label} المسجلة في قاعدة البيانات؟`)) return;
+  if (!confirm(`سيتم حذف الرسائل النصية والصوتية المسجلة بتاريخ ${label} للحساب: ${accountName || 'المحدد'}، بما فيها ملفات الصوت. هل تريد المتابعة؟`)) return;
   try {
-    const res = await ipcRenderer.invoke('clear-today-messages', { date });
+    const res = await ipcRenderer.invoke('clear-today-messages', { date, accountId });
     if (res.success) {
       await refreshStats();
-      showToast(`تم مسح ${res.deleted} رسالة بنجاح`, 'info');
+      showToast(`تم حذف ${res.deleted} رسالة (${res.messages} نصية و${res.audio} صوتية)`, 'info');
       // إرجاع واجهة التقرير للحالة الأولية
       document.getElementById('report-output').classList.add('hidden');
       document.getElementById('report-error').classList.add('hidden');
       document.getElementById('report-empty').classList.remove('hidden');
     }
   } catch (err) {
-    showToast(`خطأ في المسح: ${err.message}`, 'error');
+    showToast(`تعذر حذف البيانات: ${err.message}`, 'error');
   }
 };
 
@@ -517,10 +573,17 @@ window.openMessagesPreview = async function() {
     let html = '<div class="preview-messages-list">';
     messages.forEach(m => {
       const isSales = m.sender === 'sales';
+      const customerLabel = String(m.customer_name || 'عميل');
+      const isPhoneNumber = /^[+\d\s().-]+$/.test(customerLabel) &&
+        (customerLabel.match(/\d/g) || []).length >= 7;
+      const safeCustomerLabel = escapeHtml(customerLabel);
+      const renderedCustomerLabel = isPhoneNumber
+        ? `<bdi dir="ltr" class="phone-number">${safeCustomerLabel}</bdi>`
+        : safeCustomerLabel;
       html += `
         <div class="preview-msg-item ${isSales ? 'sales' : 'customer'}">
           <div class="msg-header">
-            <span class="msg-sender">${isSales ? '💼 ' + m.account_name : '👤 ' + m.customer_name}</span>
+            <span class="msg-sender">${isSales ? '💼 ' + escapeHtml(m.account_name || '') : '👤 ' + renderedCustomerLabel}</span>
             <span class="msg-time">${m.display_time || ''}</span>
           </div>
           <div class="msg-body">${escapeHtml(m.text)}</div>

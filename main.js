@@ -181,40 +181,46 @@ ipcMain.on('new-audio-captured', async (event, data) => {
   processAudio(data);
 });
 
-// ─── Queue لتحليل الصوت بـ Gemini بمعدل آمن ────────────────────────────────
-// نحلل رسالة كل 5 ثواني لتجنب Quota exceeded
+// ─── Queue لتحليل الصوت بتوازٍ محدود للحفاظ على السرعة وحدود API ─────────────
 const transcriptionQueue = [];
-let transcriptionRunning = false;
+let transcriptionRunning = 0;
+const MAX_PARALLEL_TRANSCRIPTIONS = 2;
 
 function enqueueTranscription(filePath, sender, accountName, customerName, audioId) {
   transcriptionQueue.push({ filePath, sender, accountName, customerName, audioId });
-  if (!transcriptionRunning) processTranscriptionQueue();
+  processTranscriptionQueue();
 }
 
-async function processTranscriptionQueue() {
-  if (transcriptionQueue.length === 0) { transcriptionRunning = false; return; }
-  transcriptionRunning = true;
-
-  const item = transcriptionQueue.shift();
-  try {
-    if (!gemini) gemini = require('./gemini');
-    const result = await gemini.transcribeAudio(
-      item.filePath, item.sender, item.accountName, item.customerName
-    );
-    if (result.success && item.audioId) {
-      db.updateAudioTranscript(item.audioId, result.transcript, result.toneAnalysis);
-      console.log(`[Main] ✅ Audio transcribed (${transcriptionQueue.length} remaining)`);
-    }
-  } catch (err) {
-    console.error('[Main] Transcription error:', err.message);
+function processTranscriptionQueue() {
+  while (transcriptionRunning < MAX_PARALLEL_TRANSCRIPTIONS && transcriptionQueue.length > 0) {
+    const item = transcriptionQueue.shift();
+    transcriptionRunning++;
+    (async () => {
+      try {
+        if (!gemini) gemini = require('./gemini');
+        const result = await gemini.transcribeAudio(
+          item.filePath, item.sender, item.accountName, item.customerName
+        );
+        if (result.success && item.audioId) {
+          db.updateAudioTranscript(item.audioId, result.transcript, result.toneAnalysis);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('message-count-updated', db.getTodayStats());
+          }
+          console.log(`[Main] ✅ Audio transcribed (${transcriptionQueue.length} remaining)`);
+        }
+      } catch (err) {
+        console.error('[Main] Transcription error:', err.message);
+      } finally {
+        transcriptionRunning--;
+        processTranscriptionQueue();
+      }
+    })();
   }
-
-  // ننتظر 5 ثواني بين كل طلب
-  setTimeout(processTranscriptionQueue, 5000);
 }
 
 async function processAudio(data) {
   try {
+    if (data.messageId && db.hasAudioMessage(data.messageId, data.accountId)) return;
     ensureAudioDir();
 
     let filePath = null;
@@ -248,9 +254,12 @@ async function processAudio(data) {
 
     // حفظ السجل في DB
     const audioId = db.saveAudioMessage({
+      messageId:    data.messageId,
       accountId:    data.accountId,
       accountName:  data.accountName,
       customerName: data.customerName,
+      customerPhone: data.customerPhone,
+      chatId:        data.chatId,
       sender:       data.sender,
       filePath:     filePath || '',
       durationSec:  data.durationSec || null,
@@ -409,8 +418,9 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, date }) => {
   }
 
   const { text: formattedChats, stats } = db.formatMessagesForGemini(accountId, date);
+  const audioRows = db.getAudioMessages(accountId, date);
   
-  if (!formattedChats) {
+  if (!formattedChats && audioRows.length === 0) {
     return { 
       success: false, 
       error: 'لا توجد رسائل محفوظة لليوم المحدد. تأكد من أن التطبيق كان مشغلاً وتم التقاط الرسائل.' 
@@ -422,7 +432,6 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, date }) => {
   // ─── بناء ملخص الرسائل الصوتية ─────────────────────────────────────────
   let audioSummary = null;
   try {
-    const audioRows = db.getAudioMessages(accountId, date);
     if (audioRows.length > 0) {
       const lines = audioRows.map((a, i) => {
         const senderLabel = a.sender === 'sales'
@@ -446,12 +455,19 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, date }) => {
     console.warn('[Main] Could not load audio messages:', e.message);
   }
 
-  const reportDate = date || new Date().toLocaleDateString('ar-EG', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-  });
+  const reportDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? date.split('-').reverse().join('-')
+    : new Date().toLocaleDateString('ar-EG', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+      });
 
-  const dateStats = db.getTodayStats(date);
-  return await gemini.analyzeDailyChats(formattedChats, dateStats, reportDate, audioSummary);
+  // Keep report totals scoped to the same selected account and date as its messages.
+  const dateStats = db.getTodayStats(date || null, accountId || null);
+  const report = await gemini.analyzeDailyChats(formattedChats || 'لا توجد رسائل نصية في هذا اليوم؛ توجد تسجيلات صوتية موضحة أدناه.', dateStats, reportDate, audioSummary);
+  if (report.success) {
+    report.customerNumbers = db.getCustomerNumbers(accountId || null, date || null);
+  }
+  return report;
 });
 
 /**
@@ -487,15 +503,26 @@ ipcMain.handle('get-today-messages-preview', async (event, { accountId } = {}) =
 /**
  * مسح رسائل اليوم
  */
-ipcMain.handle('clear-today-messages', async (event, { date } = {}) => {
+ipcMain.handle('clear-today-messages', async (event, { date, accountId } = {}) => {
   if (!db) return { success: false, error: 'قاعدة البيانات غير متاحة' };
   try {
-    const deleted = db.clearTodayMessages(date || null);
-    const stats = db.getTodayStats(date || null);
+    const result = db.clearTodayMessages(date || null, accountId || null);
+    const audioDirectory = path.resolve(AUDIO_DIR);
+    for (const audioFile of result.audioFiles) {
+      const fullPath = path.resolve(audioFile);
+      const relativePath = path.relative(audioDirectory, fullPath);
+      if (relativePath && !relativePath.startsWith(`..${path.sep}`) && relativePath !== '..' && !path.isAbsolute(relativePath)) {
+        try { fs.unlinkSync(fullPath); } catch (fileErr) {
+          if (fileErr.code !== 'ENOENT') console.warn('[Main] Could not delete audio file:', fileErr.message);
+        }
+      }
+    }
+    const stats = db.getTodayStats(date || null, accountId || null);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('message-count-updated', stats);
     }
-    return { success: true, deleted, stats };
+    const { audioFiles, ...counts } = result;
+    return { success: true, ...counts, stats };
   } catch (err) {
     return { success: false, error: err.message };
   }

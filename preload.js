@@ -39,6 +39,15 @@ function formatPhoneNumber(raw) {
   const digits = raw.replace(/\D/g, '');
   if (digits.length < 7) return raw;
 
+  // رقم مصري محلي: 01012345678 أو 1012345678 → الصيغة الدولية +20.
+  if (/^01[0125]\d{8}$/.test(digits)) {
+    const local = digits.slice(1);
+    return `+20 ${local.slice(0,2)} ${local.slice(2,6)} ${local.slice(6)}`;
+  }
+  if (/^1[0125]\d{8}$/.test(digits)) {
+    return `+20 ${digits.slice(0,2)} ${digits.slice(2,6)} ${digits.slice(6)}`;
+  }
+
   // أكواد الدول الشائعة مع طريقة تقسيم الأرقام
   const countryFormats = [
     // مصر: +20 + 10 أرقام
@@ -70,15 +79,49 @@ function formatPhoneNumber(raw) {
 
   for (const country of countryFormats) {
     if (digits.startsWith(country.code)) {
-      const localPart = digits.slice(country.code.length);
+      let localPart = digits.slice(country.code.length);
+      // بعض المصادر تضع صفر الاتصال المحلي بعد كود الدولة.
+      if (localPart.length === country.local + 1 && localPart.startsWith('0')) {
+        localPart = localPart.slice(1);
+      }
       if (localPart.length === country.local) {
         return country.fmt(localPart);
       }
     }
   }
 
-  // fallback: +XXXX XXX XXXX
-  return `+${digits.slice(0, digits.length - 10)} ${digits.slice(-10, -7)} ${digits.slice(-7, -4)} ${digits.slice(-4)}`.trim();
+  // للأرقام الدولية غير المدرجة، احتفظ بكل الأرقام ولا تخترع كود دولة.
+  if (digits.length >= 11) return `+${digits}`;
+  return raw;
+}
+
+// نأخذ رقم الاتصال فقط من معرف واتساب الهاتفي؛ معرفات LID ليست أرقامًا قابلة للاتصال.
+function getCustomerWhatsAppNumber(chatId) {
+  if (!chatId || !/@(?:c\.us|s\.whatsapp\.net)$/.test(chatId)) return '';
+  const digits = chatId.split('@')[0].replace(/\D/g, '');
+  if (digits.length < 8 || digits.length > 15) return '';
+  const formatted = formatPhoneNumber(digits);
+  // لا نعرض رقمًا محليًا بلا كود دولة على أنه رقم دولي موثوق.
+  return formatted.startsWith('+') ? formatted : '';
+}
+
+function isNonCustomerChat(chatId) {
+  return typeof chatId === 'string' && /(?:@g\.us|@broadcast|@newsletter)$/i.test(chatId);
+}
+
+function getCustomerPhoneNumber(chatId, chat) {
+  const direct = getCustomerWhatsAppNumber(chatId);
+  if (direct) return direct;
+  const contactId = chat?.contact?.id?._serialized
+    ?? chat?.contact?.get?.('id')?._serialized
+    ?? chat?.contact?.get?.('id')
+    ?? '';
+  const serialized = typeof contactId === 'string'
+    ? contactId
+    : contactId?._serialized || (contactId?.user && contactId?.server
+      ? `${contactId.user}@${contactId.server}`
+      : '');
+  return getCustomerWhatsAppNumber(serialized);
 }
 const sent = new Set();
 function dedup(id) {
@@ -92,9 +135,12 @@ function dedup(id) {
 function dispatch(msg) {
   if (!msg.text || msg.text.trim().length === 0) return;
   ipcRenderer.send('new-message-captured', {
+    messageId:    msg.messageId || null,
+    chatId:       msg.chatId || null,
     accountId:    accountId   || 'account-default',
     accountName:  accountName || 'سيلز',
     customerName: msg.customerName || 'عميل',
+    customerPhone: msg.customerPhone || '',
     sender:       msg.isOut ? 'sales' : 'customer',
     text:         msg.text.trim(),
     timestamp:    msg.timestamp || new Date().toISOString(),
@@ -215,6 +261,9 @@ async function onAudioModel(model) {
     const tSec  = model.get?.('t') ?? model.t ?? Math.floor(Date.now() / 1000);
     const chatId = model.id?.remote?._serialized
                 ?? model.get?.('id')?.remote?._serialized ?? '';
+    if (isNonCustomerChat(chatId)) return;
+    const chat = model.get?.('chat')
+              ?? window.require?.('WAWebCollections')?.Chat?.get?.(chatId);
     // fingerprint مضمون حتى لو rawId فارغ
     const fingerprint = rawId || `${chatId}|${tSec}`;
     if (sentAudio.has(fingerprint)) return;
@@ -224,8 +273,6 @@ async function onAudioModel(model) {
     // اسم العميل
     let customerName = 'عميل';
     try {
-      const chat = model.get?.('chat')
-                ?? window.require?.('WAWebCollections')?.Chat?.get?.(chatId);
       const nameFromChat    = chat?.get?.('name') ?? chat?.name;
       const nameFromContact = chat?.contact?.get?.('name') ?? chat?.contact?.name
                            ?? chat?.contact?.get?.('pushname') ?? chat?.contact?.pushname;
@@ -266,9 +313,12 @@ async function onAudioModel(model) {
     }
 
     ipcRenderer.send('new-audio-captured', {
+      messageId:    rawId || null,
+      chatId,
       accountId:    accountId   || 'account-default',
       accountName:  accountName || 'سيلز',
       customerName: formatPhoneNumber(customerName),
+      customerPhone: getCustomerPhoneNumber(chatId, chat),
       sender:       isOut ? 'sales' : 'customer',
       // بيانات فك التشفير (بدلاً من buffer مباشر)
       mediaKey,
@@ -321,13 +371,17 @@ function onMsgModel(model) {
 
     // اسم العميل
     let customerName = 'عميل';
+    let customerPhone = '';
+    let chatId = '';
     try {
-      const chatId = model.id?.remote?._serialized
+      chatId = model.id?.remote?._serialized
                   ?? model.get?.('id')?.remote?._serialized
                   ?? '';
+      if (isNonCustomerChat(chatId)) return;
 
       const chat = model.get?.('chat')
                 ?? window.require?.('WAWebCollections')?.Chat?.get?.(chatId);
+      customerPhone = getCustomerPhoneNumber(chatId, chat);
 
       const nameFromChat    = chat?.get?.('name')    ?? chat?.name;
       const nameFromContact = chat?.contact?.get?.('name')     ?? chat?.contact?.name
@@ -344,7 +398,10 @@ function onMsgModel(model) {
     const tDate = new Date(tSec * 1000);
 
     dispatch({
+      messageId: rawId || null,
+      chatId,
       customerName: formatPhoneNumber(customerName),
+      customerPhone,
       isOut,
       text:        String(body).trim(),
       timestamp:   tDate.toISOString(),

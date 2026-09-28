@@ -31,6 +31,9 @@ function initializeSchema() {
       account_id TEXT NOT NULL,
       account_name TEXT NOT NULL,
       customer_name TEXT NOT NULL,
+      customer_phone TEXT,
+      chat_id TEXT,
+      message_id TEXT,
       sender TEXT NOT NULL CHECK(sender IN ('sales', 'customer')),
       text TEXT NOT NULL,
       timestamp TEXT NOT NULL,
@@ -49,6 +52,9 @@ function initializeSchema() {
       account_id   TEXT NOT NULL,
       account_name TEXT NOT NULL,
       customer_name TEXT NOT NULL,
+      customer_phone TEXT,
+      chat_id TEXT,
+      message_id TEXT,
       sender       TEXT NOT NULL CHECK(sender IN ('sales', 'customer')),
       file_path    TEXT NOT NULL,
       duration_sec INTEGER,
@@ -62,6 +68,34 @@ function initializeSchema() {
     CREATE INDEX IF NOT EXISTS idx_audio_account_date
     ON audio_messages(account_id, timestamp);
   `);
+
+  // Upgrade existing local databases without removing their saved messages.
+  const messageColumns = d.prepare('PRAGMA table_info(messages)').all().map(column => column.name);
+  if (!messageColumns.includes('customer_phone')) {
+    d.exec('ALTER TABLE messages ADD COLUMN customer_phone TEXT');
+  }
+  if (!messageColumns.includes('message_id')) {
+    d.exec('ALTER TABLE messages ADD COLUMN message_id TEXT');
+  }
+  if (!messageColumns.includes('chat_id')) {
+    d.exec('ALTER TABLE messages ADD COLUMN chat_id TEXT');
+  }
+  const audioColumns = d.prepare('PRAGMA table_info(audio_messages)').all().map(column => column.name);
+  if (!audioColumns.includes('customer_phone')) {
+    d.exec('ALTER TABLE audio_messages ADD COLUMN customer_phone TEXT');
+  }
+  if (!audioColumns.includes('message_id')) {
+    d.exec('ALTER TABLE audio_messages ADD COLUMN message_id TEXT');
+  }
+  if (!audioColumns.includes('chat_id')) {
+    d.exec('ALTER TABLE audio_messages ADD COLUMN chat_id TEXT');
+  }
+  d.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_account_message
+      ON messages(account_id, message_id) WHERE message_id IS NOT NULL AND message_id != '';
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_audio_account_message
+      ON audio_messages(account_id, message_id) WHERE message_id IS NOT NULL AND message_id != '';
+  `);
   
   console.log(`[Database] SQLite initialized at: ${DB_PATH}`);
 }
@@ -72,21 +106,38 @@ function initializeSchema() {
 function saveMessage(data) {
   const d = getDb();
   const stmt = d.prepare(`
-    INSERT INTO messages (account_id, account_name, customer_name, sender, text, timestamp, display_time)
-    VALUES (@accountId, @accountName, @customerName, @sender, @text, @timestamp, @displayTime)
+    INSERT INTO messages (account_id, account_name, customer_name, customer_phone, chat_id, message_id, sender, text, timestamp, display_time)
+    VALUES (@accountId, @accountName, @customerName, @customerPhone, @chatId, @messageId, @sender, @text, @timestamp, @displayTime)
+    ON CONFLICT(account_id, message_id) WHERE message_id IS NOT NULL AND message_id != '' DO NOTHING
   `);
   
   try {
+    if (data.messageId && data.chatId) {
+      const legacyRow = d.prepare(`
+        SELECT id FROM messages
+        WHERE account_id = ? AND message_id IS NULL AND (chat_id IS NULL OR chat_id = '')
+          AND timestamp = ? AND sender = ? AND customer_name = ? AND text = ?
+        ORDER BY id LIMIT 1
+      `).get(data.accountId || 'unknown', data.timestamp, data.sender, data.customerName, data.text);
+      if (legacyRow) {
+        d.prepare('UPDATE messages SET message_id = ?, chat_id = ?, customer_phone = ? WHERE id = ?')
+          .run(data.messageId, data.chatId, data.customerPhone || null, legacyRow.id);
+        return null;
+      }
+    }
     const result = stmt.run({
       accountId: data.accountId || 'unknown',
       accountName: data.accountName || 'Unknown Account',
       customerName: data.customerName || 'Unknown Customer',
+      customerPhone: data.customerPhone || null,
+      chatId: data.chatId || null,
+      messageId: data.messageId || null,
       sender: data.sender || 'unknown',
       text: data.text || '',
       timestamp: data.timestamp || new Date().toISOString(),
       displayTime: data.displayTime || new Date().toLocaleTimeString('ar-EG')
     });
-    return result.lastInsertRowid;
+    return result.changes ? result.lastInsertRowid : null;
   } catch (err) {
     console.error('[Database] Error saving message:', err);
     return null;
@@ -99,15 +150,36 @@ function saveMessage(data) {
 function saveAudioMessage(data) {
   const d = getDb();
   try {
+    if (data.messageId && data.chatId) {
+      const legacyRow = d.prepare(`
+        SELECT id FROM audio_messages
+        WHERE account_id = ? AND message_id IS NULL AND (chat_id IS NULL OR chat_id = '')
+          AND timestamp = ? AND sender = ? AND customer_name = ?
+        ORDER BY id LIMIT 1
+      `).get(data.accountId || 'unknown', data.timestamp, data.sender, data.customerName);
+      if (legacyRow) {
+        d.prepare(`
+          UPDATE audio_messages
+          SET message_id = ?, chat_id = ?, customer_phone = ?, file_path = ?, duration_sec = ?
+          WHERE id = ?
+        `).run(data.messageId, data.chatId, data.customerPhone || null, data.filePath || '',
+          data.durationSec || null, legacyRow.id);
+        return legacyRow.id;
+      }
+    }
     const result = d.prepare(`
-      INSERT INTO audio_messages
-        (account_id, account_name, customer_name, sender, file_path, duration_sec, transcript, tone_analysis, timestamp, display_time)
+    INSERT INTO audio_messages
+        (account_id, account_name, customer_name, customer_phone, chat_id, message_id, sender, file_path, duration_sec, transcript, tone_analysis, timestamp, display_time)
       VALUES
-        (@accountId, @accountName, @customerName, @sender, @filePath, @durationSec, @transcript, @toneAnalysis, @timestamp, @displayTime)
+        (@accountId, @accountName, @customerName, @customerPhone, @chatId, @messageId, @sender, @filePath, @durationSec, @transcript, @toneAnalysis, @timestamp, @displayTime)
+      ON CONFLICT(account_id, message_id) WHERE message_id IS NOT NULL AND message_id != '' DO NOTHING
     `).run({
       accountId:    data.accountId    || 'unknown',
       accountName:  data.accountName  || 'Unknown',
       customerName: data.customerName || 'Unknown',
+      customerPhone: data.customerPhone || null,
+      chatId:        data.chatId || null,
+      messageId:    data.messageId || null,
       sender:       data.sender       || 'customer',
       filePath:     data.filePath     || '',
       durationSec:  data.durationSec  || null,
@@ -116,7 +188,7 @@ function saveAudioMessage(data) {
       timestamp:    data.timestamp    || new Date().toISOString(),
       displayTime:  data.displayTime  || '',
     });
-    return result.lastInsertRowid;
+    return result.changes ? result.lastInsertRowid : null;
   } catch (err) {
     console.error('[Database] Error saving audio message:', err);
     return null;
@@ -133,19 +205,45 @@ function updateAudioTranscript(id, transcript, toneAnalysis) {
   `).run(transcript || '', toneAnalysis || '', id);
 }
 
+function hasAudioMessage(messageId, accountId) {
+  if (!messageId || !accountId) return false;
+  return Boolean(getDb().prepare(
+    'SELECT 1 FROM audio_messages WHERE account_id = ? AND message_id = ? LIMIT 1'
+  ).get(accountId, messageId));
+}
+
 /**
  * جلب الرسائل الصوتية لتاريخ معين.
  */
 function getAudioMessages(accountId = null, date = null) {
   const d = getDb();
-  const targetDate = date || getLocalDateString();
+  const [start, end] = getDateRange(date);
   let query = `
     SELECT * FROM audio_messages
-    WHERE DATE(datetime(timestamp, 'localtime')) = ?
+    WHERE timestamp >= ? AND timestamp < ?
+      AND (chat_id IS NULL OR (chat_id NOT LIKE '%@g.us' AND chat_id NOT LIKE '%@broadcast'))
   `;
-  const params = [targetDate];
+  const params = [start, end];
   if (accountId) { query += ' AND account_id = ?'; params.push(accountId); }
   query += ' ORDER BY timestamp ASC';
+  return d.prepare(query).all(...params);
+}
+
+function getCustomerNumbers(accountId = null, date = null) {
+  const d = getDb();
+  const [start, end] = getDateRange(date);
+  let query = `
+    SELECT DISTINCT account_name, customer_name, customer_phone
+    FROM (SELECT account_id, account_name, customer_name, customer_phone, chat_id, timestamp FROM messages
+          UNION ALL
+          SELECT account_id, account_name, customer_name, customer_phone, chat_id, timestamp FROM audio_messages)
+    WHERE timestamp >= ? AND timestamp < ?
+      AND (chat_id IS NULL OR (chat_id NOT LIKE '%@g.us' AND chat_id NOT LIKE '%@broadcast'))
+      AND customer_phone IS NOT NULL AND customer_phone != ''
+  `;
+  const params = [start, end];
+  if (accountId) { query += ' AND account_id = ?'; params.push(accountId); }
+  query += ' ORDER BY account_name, customer_name';
   return d.prepare(query).all(...params);
 }
 
@@ -156,6 +254,17 @@ function getLocalDateString(d = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+// Local calendar-day boundaries keep timestamp predicates indexable.
+function getDateRange(date = null) {
+  const selected = date || getLocalDateString();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(selected);
+  if (!match) throw new Error('تاريخ غير صالح');
+  const start = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (getLocalDateString(start) !== selected) throw new Error('تاريخ غير صالح');
+  const end = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + 1);
+  return [start.toISOString(), end.toISOString()];
+}
+
 
 /**
  * جلب رسائل اليوم مجمعة حسب الحساب والعميل.
@@ -164,22 +273,25 @@ function getLocalDateString(d = new Date()) {
  */
 function getTodayMessages(accountId = null, date = null) {
   const d = getDb();
-  const targetDate = date || getLocalDateString();
+  const [start, end] = getDateRange(date);
   
   let query = `
     SELECT 
       account_id,
       account_name,
       customer_name,
+      customer_phone,
+      chat_id,
       sender,
       text,
       timestamp,
       display_time
     FROM messages
-    WHERE DATE(datetime(timestamp, 'localtime')) = ?
+    WHERE timestamp >= ? AND timestamp < ?
+      AND (chat_id IS NULL OR (chat_id NOT LIKE '%@g.us' AND chat_id NOT LIKE '%@broadcast'))
   `;
   
-  const params = [targetDate];
+  const params = [start, end];
   
   if (accountId) {
     query += ' AND account_id = ?';
@@ -205,6 +317,15 @@ function formatPhoneNumber(raw) {
   const digits = raw.replace(/\D/g, '');
   if (digits.length < 7) return raw;
 
+  // رقم مصري محلي: 01012345678 أو 1012345678 → الصيغة الدولية +20.
+  if (/^01[0125]\d{8}$/.test(digits)) {
+    const local = digits.slice(1);
+    return `+20 ${local.slice(0,2)} ${local.slice(2,6)} ${local.slice(6)}`;
+  }
+  if (/^1[0125]\d{8}$/.test(digits)) {
+    return `+20 ${digits.slice(0,2)} ${digits.slice(2,6)} ${digits.slice(6)}`;
+  }
+
   const countryFormats = [
     { code: '20',  local: 10, fmt: (d) => `+20 ${d.slice(0,2)} ${d.slice(2,6)} ${d.slice(6)}` },
     { code: '20',  local: 9,  fmt: (d) => `+20 ${d.slice(0,2)} ${d.slice(2,5)} ${d.slice(5)}` },       // مصر
@@ -227,21 +348,20 @@ function formatPhoneNumber(raw) {
 
   for (const country of countryFormats) {
     if (digits.startsWith(country.code)) {
-      const local = digits.slice(country.code.length);
+      let local = digits.slice(country.code.length);
+      // بعض المصادر تضع صفر الاتصال المحلي بعد كود الدولة.
+      if (local.length === country.local + 1 && local.startsWith('0')) {
+        local = local.slice(1);
+      }
       if (local.length === country.local) {
         return country.fmt(local);
       }
     }
   }
 
-  // fallback: +كود البلد + تقسيم الباقي
-  if (digits.length >= 10) {
-    const cc  = digits.slice(0, digits.length - 10);
-    const num = digits.slice(-10);
-    return `+${cc} ${num.slice(0,3)} ${num.slice(3,6)} ${num.slice(6)}`.trim();
-  }
-
-  return `+${digits}`;
+  // للأرقام الدولية غير المدرجة، احتفظ بكل الأرقام ولا تخترع كود دولة.
+  if (digits.length >= 11) return `+${digits}`;
+  return raw;
 }
 
 /**
@@ -260,6 +380,8 @@ function formatMessagesForGemini(accountId = null, date = null) {
   for (const row of rows) {
     // تنسيق اسم العميل إذا كان رقم هاتف
     const customerDisplay = formatPhoneNumber(row.customer_name);
+    const phoneKey = row.customer_phone ? row.customer_phone.replace(/\D/g, '') : '';
+    const customerKey = phoneKey || row.chat_id || customerDisplay;
 
     if (!grouped[row.account_id]) {
       grouped[row.account_id] = {
@@ -268,12 +390,12 @@ function formatMessagesForGemini(accountId = null, date = null) {
         allMessages: []
       };
     }
-    if (!grouped[row.account_id].chats[customerDisplay]) {
-      grouped[row.account_id].chats[customerDisplay] = [];
+    if (!grouped[row.account_id].chats[customerKey]) {
+      grouped[row.account_id].chats[customerKey] = { name: customerDisplay, messages: [] };
     }
     // نستخدم نسخة مُعدَّلة من الـ row بالاسم المنسَّق
     const displayRow = { ...row, customer_name: customerDisplay };
-    grouped[row.account_id].chats[customerDisplay].push(displayRow);
+    grouped[row.account_id].chats[customerKey].messages.push(displayRow);
     grouped[row.account_id].allMessages.push(displayRow);
   }
 
@@ -281,7 +403,8 @@ function formatMessagesForGemini(accountId = null, date = null) {
   function calcResponseStats(accData) {
     const responseTimes = []; // بالثواني
 
-    for (const messages of Object.values(accData.chats)) {
+    for (const chat of Object.values(accData.chats)) {
+      const messages = chat.messages;
       // نرتب الرسائل حسب timestamp
       const sorted = [...messages].sort((a, b) =>
         new Date(a.timestamp) - new Date(b.timestamp)
@@ -369,7 +492,9 @@ function formatMessagesForGemini(accountId = null, date = null) {
       responseStats: resp
     };
 
-    for (const [customerName, messages] of Object.entries(accData.chats)) {
+    for (const chat of Object.values(accData.chats)) {
+      const customerName = chat.name;
+      const messages = chat.messages;
       totalChats++;
       formattedText += `--- محادثة مع العميل: ${customerName} ---\n`;
       
@@ -399,27 +524,26 @@ function formatMessagesForGemini(accountId = null, date = null) {
  */
 function getTodayStats(date = null, accountId = null) {
   const d = getDb();
-  const targetDate = date || getLocalDateString();
-
-  let query = `
-    SELECT 
-      COUNT(DISTINCT account_id) as accounts,
-      COUNT(DISTINCT account_id || '|' || customer_name) as chats,
-      COUNT(*) as total_messages,
-      COUNT(CASE WHEN sender = 'sales' THEN 1 END) as sales_messages,
-      COUNT(CASE WHEN sender = 'customer' THEN 1 END) as customer_messages
-    FROM messages
-    WHERE DATE(datetime(timestamp, 'localtime')) = ?
-  `;
-  const params = [targetDate];
-
-  if (accountId) {
-    query += ' AND account_id = ?';
-    params.push(accountId);
-  }
-
-  const stats = d.prepare(query).get(...params);
-  return stats || { accounts: 0, chats: 0, total_messages: 0, sales_messages: 0, customer_messages: 0 };
+  const [start, end] = getDateRange(date);
+  const accountClause = accountId ? ' AND account_id = ?' : '';
+  const params = accountId ? [start, end, accountId, start, end, accountId] : [start, end, start, end];
+  return d.prepare(`
+    WITH day_messages AS (
+      SELECT account_id, COALESCE(NULLIF(replace(replace(replace(replace(replace(customer_phone, ' ', ''), '-', ''), '(', ''), ')', ''), '+', ''), ''), NULLIF(chat_id, ''), customer_name, 'unknown') AS chat_key, sender
+        FROM messages WHERE timestamp >= ? AND timestamp < ?${accountClause}
+          AND (chat_id IS NULL OR (chat_id NOT LIKE '%@g.us' AND chat_id NOT LIKE '%@broadcast'))
+      UNION ALL
+      SELECT account_id, COALESCE(NULLIF(replace(replace(replace(replace(replace(customer_phone, ' ', ''), '-', ''), '(', ''), ')', ''), '+', ''), ''), NULLIF(chat_id, ''), customer_name, 'unknown') AS chat_key, sender
+        FROM audio_messages WHERE timestamp >= ? AND timestamp < ?${accountClause}
+          AND (chat_id IS NULL OR (chat_id NOT LIKE '%@g.us' AND chat_id NOT LIKE '%@broadcast'))
+    )
+    SELECT COUNT(DISTINCT account_id) AS accounts,
+      COUNT(DISTINCT account_id || char(31) || chat_key) AS chats,
+      COUNT(*) AS total_messages,
+      COALESCE(SUM(CASE WHEN sender = 'sales' THEN 1 ELSE 0 END), 0) AS sales_messages,
+      COALESCE(SUM(CASE WHEN sender = 'customer' THEN 1 ELSE 0 END), 0) AS customer_messages
+    FROM day_messages
+  `).get(...params);
 }
 
 /**
@@ -439,21 +563,27 @@ function cleanupOldMessages() {
 /**
  * مسح رسائل اليوم (لإعادة التعيين والتجربة).
  */
-function clearTodayMessages(date = null) {
+function clearTodayMessages(date = null, accountId = null) {
   const d = getDb();
-  const targetDate = date || getLocalDateString();
-  const result = d.prepare(`
-    DELETE FROM messages 
-    WHERE DATE(datetime(timestamp, 'localtime')) = ?
-  `).run(targetDate);
-  return result.changes;
+  const [start, end] = getDateRange(date);
+  const accountClause = accountId ? ' AND account_id = ?' : '';
+  const params = accountId ? [start, end, accountId] : [start, end];
+  return d.transaction(() => {
+    const audioFiles = d.prepare(`SELECT file_path FROM audio_messages WHERE timestamp >= ? AND timestamp < ?${accountClause}`)
+      .all(...params).map(row => row.file_path).filter(Boolean);
+    const messages = d.prepare(`DELETE FROM messages WHERE timestamp >= ? AND timestamp < ?${accountClause}`).run(...params);
+    const audio = d.prepare(`DELETE FROM audio_messages WHERE timestamp >= ? AND timestamp < ?${accountClause}`).run(...params);
+    return { messages: messages.changes, audio: audio.changes, deleted: messages.changes + audio.changes, audioFiles };
+  })();
 }
 
 module.exports = {
   saveMessage,
   saveAudioMessage,
   updateAudioTranscript,
+  hasAudioMessage,
   getAudioMessages,
+  getCustomerNumbers,
   getTodayMessages,
   formatMessagesForGemini,
   getTodayStats,
