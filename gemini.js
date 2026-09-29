@@ -10,17 +10,43 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+// استخدم نموذج Flash-Lite منخفض التكلفة لكل الطلبات. لا يوجد رجوع تلقائي
+// إلى نموذج أغلى حتى لا ترتفع الفاتورة بصمت عند تعذر النموذج الأساسي.
+const GEMINI_MODEL = 'gemini-3.1-flash-lite';
+const CANDIDATE_MODELS = [GEMINI_MODEL];
+const PRICE_PER_MILLION = { textInput: 0.25, audioInput: 0.50, cachedTextInput: 0.025, cachedAudioInput: 0.05, output: 1.50 };
+let usageRecorder = null;
 
-// قائمة الموديلات المتاحة مرتبة حسب الأولوية وتوافر السيرفرات
-const CANDIDATE_MODELS = [
-  'gemini-3.8-flash',
-  'gemini-3.5-flash',
-  'gemini-3.5-flash-lite',
-];
+function setUsageRecorder(recorder) { usageRecorder = recorder; }
 
-// نفس القائمة للصوت (هذه الموديلات multimodal بطبيعتها)
-const AUDIO_MODELS = CANDIDATE_MODELS;
+function errorCode(error) {
+  const raw = error && (error.status || error.code || error.name) || 'UNKNOWN';
+  return String(raw).replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 80) || 'UNKNOWN';
+}
+
+async function recordUsage(response, { callType, model, accountId = null, status = 'success', error = null, audioInput = false }) {
+  if (!usageRecorder) return;
+  const meta = response && response.usageMetadata || {};
+  const inputTokens = Number.isFinite(meta.promptTokenCount) ? meta.promptTokenCount : null;
+  const outputTokens = Number.isFinite(meta.candidatesTokenCount) ? meta.candidatesTokenCount : null;
+  const thinkingTokens = Number.isFinite(meta.thoughtsTokenCount) ? meta.thoughtsTokenCount : null;
+  const cachedInputTokens = Number.isFinite(meta.cachedContentTokenCount) ? meta.cachedContentTokenCount : 0;
+  const details = meta.promptTokensDetails || [];
+  const reportedAudioTokens = details.filter(item => String(item.modality).toUpperCase() === 'AUDIO').reduce((sum, item) => sum + (Number(item.tokenCount) || 0), 0);
+  const inputAudioTokens = audioInput ? (reportedAudioTokens || inputTokens || 0) : reportedAudioTokens;
+  const inputTextTokens = inputTokens === null ? null : Math.max(0, inputTokens - inputAudioTokens);
+  const nonCachedTextTokens = Math.max(0, (inputTextTokens || 0) - cachedInputTokens);
+  const billableOutput = (outputTokens || 0) + (thinkingTokens || 0);
+  const estimatedCostUsd = inputTokens === null && outputTokens === null ? null :
+    (nonCachedTextTokens * PRICE_PER_MILLION.textInput + inputAudioTokens * PRICE_PER_MILLION.audioInput +
+      cachedInputTokens * PRICE_PER_MILLION.cachedTextInput + billableOutput * PRICE_PER_MILLION.output) / 1_000_000;
+  try {
+    await usageRecorder({ callType, accountId, model, status, inputTokens, inputTextTokens, inputAudioTokens,
+      cachedInputTokens, outputTokens, thinkingTokens, estimatedCostUsd, errorCode: error ? errorCode(error) : null });
+  } catch (loggingError) {
+    console.warn('[Gemini] Could not persist usage metrics:', loggingError.message);
+  }
+}
 
 // Prompt-based assessment criteria distilled from Khatwa's sales playbook.
 const SALES_PLAYBOOK_RUBRIC = `
@@ -45,7 +71,7 @@ const SALES_PLAYBOOK_RUBRIC = `
  * @param {string} reportDate     - تاريخ التقرير
  * @param {string} audioSummary   - ملخص الرسائل الصوتية المحلّلة (اختياري)
  */
-async function analyzeDailyChats(formattedChats, stats, reportDate, audioSummary = null) {
+async function analyzeDailyChats(formattedChats, stats, reportDate, audioSummary = null, accountId = null, period = 'today') {
   const today = reportDate || new Date().toLocaleDateString('ar-EG', {
     weekday: 'long',
     year: 'numeric',
@@ -57,78 +83,104 @@ async function analyzeDailyChats(formattedChats, stats, reportDate, audioSummary
 أنت خبير في تقييم جودة أداء فرق المبيعات (Senior Sales Quality Auditor) ذو خبرة 20 عاماً في مجال السيلز في السوق المصري والعربي.
 
 ## مهمتك:
-ستحلل الآن سجل كامل لمحادثات واتساب لفريق المبيعات خلال يوم عمل كامل (${today}).
+ستحلل سجل محادثات واتساب خلال الفترة المحددة (${today}).
 
-## إحصائيات اليوم:
+## إحصائيات الفترة المحددة:
 - عدد ممثلي المبيعات النشطين: ${stats.accounts || 0}
-- إجمالي المحادثات مع العملاء: ${stats.chats || 0}
-- إجمالي عدد العملاء المختلفين الذين تم التواصل معهم: ${stats.chats || 0}
+- إجمالي المحادثات المختلفة مع العملاء: ${stats.chats || 0}
 - إجمالي الرسائل المرسلة والمستقبلة: ${stats.total_messages || stats.messages || 0}
 - الرسائل الصادرة من السيلز: ${stats.sales_messages || 0}
 - الرسائل الواردة من العملاء: ${stats.customer_messages || 0}
 الأعداد أعلاه محسوبة مباشرة من قاعدة البيانات بعد تطبيق فلتر السيلز والتاريخ المختارين. اعرضها كما هي دون إعادة تقديرها أو استبدالها بعدّ محتوى التقرير.
+- ليدات جديدة محسوبة من سجل الاتصال: ${stats.leadCount || 0}
+- فولو أب محسوب من سجل الاتصال: ${stats.followupCount || 0}
+- توزيع الشاتات والرسائل لكل حساب (محسوب من قاعدة البيانات): ${JSON.stringify(stats.perAccount || {})}
+- الفترة: ${period === 'last48h' ? 'آخر 48 ساعة متحركة' : 'اليوم من منتصف الليل حتى الآن'}
+
+## مؤشرات محسوبة محليًا للرسائل النصية فقط (JSON):
+${JSON.stringify(stats.textActivityByAccount || {}, null, 2)}
+هذه المؤشرات محسوبة من الطوابع الزمنية محليًا وليست تقديرات. وضّح أنها للرسائل النصية فقط؛ لا تنسبها إلى الصوت ولا تجمعها مع أعداد قاعدة البيانات مرة أخرى.
 
 ## المحادثات الكاملة (تتضمن بيانات سرعة الرد لكل سيلز):
 ${formattedChats}
 
-${audioSummary ? `## الرسائل الصوتية المسجّلة والمحلّلة:\n${audioSummary}\n` : ''}
+${audioSummary ? `## الرسائل الصوتية المسجّلة وتفريغها:\n${audioSummary}\n` : ''}
 
 ${SALES_PLAYBOOK_RUBRIC}
 
 ## التعليمات:
-قم بتحليل شامل ودقيق للمحادثات وأخرج تقريراً مفصلاً يشمل:
+اكتب تقريرًا إداريًا عربيًا شاملًا على غرار تقرير تدقيق مبيعات منظم: مقدمة تحدد ممثل المبيعات والحساب والفترة من البيانات المتاحة، ثم الأقسام الخمسة أدناه بالترتيب، ثم خلاصة موجزة للإدارة. لا تخترع اسم مؤسسة أو موظف أو تاريخ أو معلومة غير موجودة. لا تختصره إلى ملخص تنفيذي.
 
-### أولاً: التقييم العام لكل سيلز:
-- الدرجة الإجمالية من 100 وفق الأوزان أعلاه، مع تفصيل درجات المحاور
-- نقاط القوة (3-5 نقاط محددة)
-- مجالات التطوير (3-5 نقاط محددة مع أمثلة من المحادثات)
-- قيّم النص والصوت المنسوخ كلًّا على حدة ثم أعطِ تقييمًا موحدًا. وضّح إذا كان تفريغ الصوت غير متاح. لا تستنتج جودة الأداء الصوتي من التفريغ وحده؛ استخدم تحليل النبرة المتاح بحذر.
+## قاعدة إلزامية للاستدلال وربط كل ملاحظة بصاحبها:
+- كل وصف أو استنتاج عن سلوك السيلز (مثل التأخر، ضعف الاستماع، الضغط، الإهمال، المتابعة الجيدة، أو دقة الشرح) يجب أن يذكر رقم واتساب الطالب كما ورد في عنوان المحادثة، ثم يورد اقتباسًا حرفيًا قصيرًا من الرسائل وتوقيته.
+- افصل بوضوح بين «الواقعة»: ما قاله أو فعله السيلز حرفيًا، و«الاستنتاج»: ما قد يدل عليه ذلك السلوك، و«الأثر المحتمل»: أثره الممكن على الطالب. لا تعرض الاستنتاج كحقيقة مؤكدة.
+- عند عدم توفر رقم الهاتف، اذكر «رقم واتساب غير متاح» واربط الدليل بمعرّف الشات البديل المذكور في العنوان؛ لا تخترع رقمًا أو تنسب اقتباسًا لشخص آخر.
+- لا تستنتج صفة دائمة أو نية من كلمة منفردة مثل «أيوة» أو «تمام»؛ اقرأ الرسالة في سياق الحوار، واشرح حدود الاستدلال.
+- لا تعرض أرقام الطلاب في المقدمة أو مؤشرات النشاط أو جداول الإحصاءات؛ اذكرها فقط داخل التقرير بجوار السلوك أو الاقتباس الذي تخصه.
+- لا تستنتج نية سلبية من كثرة الرسائل الصوتية أو من وقت الإرسال وحده، ولا تصف الموظف بالكسل أو الإهمال أو الاستهتار. لا تصف صفقة بأنها خاسرة أو مغلقة دون دليل صريح في السجل.
+- لا تخترع أسعارًا أو نسبًا أو شروط قبول أو ردًا بديلًا يحتوي معلومات غير موجودة. اجعل صياغة الرد البديل عامة أو ضع موضع المعلومة المطلوب التحقق منها بين أقواس.
+- إذا لم يتوفر تفريغ صوت، اذكر أن محتوى الصوت غير متاح ولا تحكم على محتواه أو سبب إرساله. لا تساوِ بين الاعتراض والسلوك الخاطئ تلقائيًا.
+- كل نقد للسيلز يجب أن يتضمن: رقم الطالب، التوقيت، الاقتباس الداعم، سبب اعتبار التصرف مشكلة وفق المرجع، بديلًا عمليًا كان يمكن قوله، وخطوة متابعة مقترحة. إذا لم توجد مشكلة مدعومة، قل ذلك صراحة ولا تختلق خطأ.
+- لا تكرر نص المحادثة كاملًا؛ اقتبس القدر اللازم فقط لإثبات النقطة.
 
-### ثانياً: مؤشرات النشاط والسرعة لكل سيلز:
-استخرج هذه البيانات مباشرة من بيانات الوقت المُضمَّنة في المحادثات:
-- **أول رسالة في اليوم**: الوقت واسم العميل
-- **آخر رسالة في اليوم**: الوقت واسم العميل
-- **متوسط سرعة الرد**: الوقت بين رسالة العميل ورد السيلز
-- **أسرع رد**: المدة والوقت
-- **أبطأ رد**: المدة والوقت وسبب التأخر المحتمل
-- **تقييم الانضباط الزمني**: هل الردود في أوقات العمل؟ هل هناك تأخر متكرر؟
+### أولاً: التقييم العام لكل ممثل مبيعات:
+- اذكر الدرجة الإجمالية من 100 ووصفًا مهنيًا متزنًا لمستوى الأداء، ثم جدول محاور المرجع: المحور، الوزن، الدرجة، السبب والدليل. اجعل التبرير في الجدول دقيقًا وقابلًا للتحقق، وبجواره رقم الطالب والاقتباس والتوقيت عند الاستدلال على سلوك.
+- اعرض نقاط القوة ومجالات التطوير كلًا على حدة. استخدم أمثلة من عدة محادثات عند توفرها؛ لا تفرض عددًا ثابتًا إذا لم تدعمه الأدلة، ولا تعمم سلوك محادثة واحدة على كل الموظف.
+- قيّم جودة النصوص والتفريغات الصوتية المتاحة فقط. انقل تحليل النبرة كما هو إذا وُجد، واعتبره قرينة مساعدة لا حكمًا على النية.
 
-### ثالثاً: تشريح كل محادثة بالتفصيل:
-لكل عميل تكلم معه السيلز، حدد:
-1. **حالة الصفقة**: مغلقة/مهتم/بارد/ضائعة
-2. **الأخطاء المحددة**: اقتبس كلام السيلز الخاطئ وقدم الرد البديل الصحيح
-3. **الفرص الضائعة**: ما الذي كان يجب فعله لتحويل العميل
+### ثانياً: مؤشرات النشاط والسرعة لكل ممثل مبيعات:
+اعرض جدولًا للأعداد الرسمية كما وردت أعلاه، مع الفترة والحساب: المحادثات، الرسائل، الصادر والوارد، الليدات والفولو أب. ثم اعرض أول وآخر رسالة نصية ومتوسط وأسرع وأبطأ رد وعدد الردود الداخلة في المتوسط. وضّح أن السرعة محسوبة من النص فقط إذا كان ذلك هو المتاح. لا تعرض رقم طالب هنا، ولا تعِد حساب مؤشرات قاعدة البيانات أو تستنتج جودة الأداء من التوقيت وحده.
+
+### ثالثاً: مراجعة تفصيلية لجميع المحادثات — لا تكتفِ بنماذج مختارة:
+أنشئ عنوانًا مستقلًا لكل محادثة، واذكر اسم الطالب أو رقمه المتاح في هذا القسم فقط. راجع جميع المحادثات الواردة واحدةً واحدة؛ لا تكتب «مراجعة مختارة» ولا تستبدل بقية المحادثات بأمثلة قليلة. لكل محادثة اكتب: حالة العميل/الصفقة بحذر، ملخص احتياجه وما صرّح به، ما فعله السيلز جيدًا، الأخطاء أو الفرص الضائعة مع اقتباس وتوقيت ورقم الطالب، بديل رد مناسب، والخطوة التالية. إذا كانت المحادثة قصيرة فاذكر حدود الدليل بدل الحشو. استهدف 100–180 كلمة لكل محادثة ذات سجل كافٍ.
 
 ### رابعاً: إحصائيات الأداء:
-- عدد العملاء الذين تواصل معهم كل سيلز خلال اليوم (اذكر الرقم لكل سيلز بالاسم)
-- معدل الاستجابة الاحترافية
-- معدل إغلاق الصفقات
-- أكثر الاعتراضات تكراراً وكيف تعامل معها السيلز
+- اعرض إحصائيات الفريق والحسابات في جدول موجز اعتمادًا على الأرقام المحسوبة من قاعدة البيانات، دون أرقام طلاب ودون تكرار تقدير الأعداد من النص. لخّص الاعتراضات المتكررة وكيف جرى التعامل معها مع أمثلة موثقة من قسم مراجعة المحادثات.
+- لا تذكر نسبة الاستجابة الاحترافية أو إغلاق الصفقات إلا إذا توفر تعريف واضح وبسط ومقام من السجل؛ وإلا اكتب أن النسبة غير قابلة للحساب بدقة. لا تصف أي صفقة بأنها مفقودة أو مغلقة بلا قرينة صريحة.
 
 ### خامساً: توصيات تدريبية:
-- 3 توصيات أولوية قصوى لتطوير أداء الفريق
+- ضع توصيات عملية مرتبة حسب الأولوية، وكل توصية ترتبط بسلوك موثق أو تتضح أنها توصية عامة، وتتضمن تدريبًا أو صياغة بديلة وطريقة متابعة التحسن. تجنب ذكر بروتوكول أو سياسة ملزمة على أنها قائمة ما لم يثبت ذلك في المدخل.
 
-**مهم جداً**: استشهد دائماً بجمل حقيقية من المحادثات في تحليلك لتكون النتائج موثوقة وقابلة للتطبيق.
+**مهم جداً**: لا تذكر أي حكم على سلوك أي سيلز من دون رقم الطالب أو معرّف الشات، واقتباس حقيقي، وتوقيت متاح. لا تحذف دليلًا بحجة الاختصار، ولا تخلط بين محادثتين أو حسابين.
 
-أجب بالعربية بالكامل، وكن صريحاً ومحدداً في نقدك - هذا التقرير للإدارة وليس للموظف مباشرة.
+استخدم عناوين وترقيمًا وقوائم واضحة وجدولًا حقيقيًا لمحاور التقييم، مثل تقرير مرفوع للإدارة. افصل الحقائق المحسوبة عن التقييم النوعي. أجب بالعربية بالكامل، ولا تخمّن الأرقام أو أسماء العملاء أو نتائج البيع، واربط كل نقد باقتباس من السجل.
+
+## صيغة الإخراج:
+أعد JSON صالحًا فقط بالمفاتيح التالية: report (نص التقرير Markdown كاملًا)، dailyScores (مصفوفة تقييم يومي عنصر واحد لكل حساب في التوزيع أعلاه). كل عنصر يحتوي accountId (المعرف حرفيًا من التوزيع)، accountName، overallScore عددًا صحيحًا من 0 إلى 100، وimprovement (أهم نقطة تطوير مدعومة بمثال قصير). لا تسقط حسابًا ولا تخترع معرفًا.
 `;
+
+  const scoreSchema = { type: 'OBJECT', properties: {
+    accountId: { type: 'STRING' }, accountName: { type: 'STRING' }, overallScore: { type: 'INTEGER' }, improvement: { type: 'STRING' }
+  }, required: ['accountId', 'accountName', 'overallScore', 'improvement'] };
+  const responseSchema = { type: 'OBJECT', properties: {
+    report: { type: 'STRING' }, dailyScores: { type: 'ARRAY', items: scoreSchema }
+  }, required: ['report', 'dailyScores'] };
 
   let lastError = null;
 
   for (let i = 0; i < CANDIDATE_MODELS.length; i++) {
     const model = CANDIDATE_MODELS[i];
+    let response = null;
+    let usageRecorded = false;
     try {
       console.log(`[Gemini] Sending request to Gemini API (model: ${model})...`);
       
-      const response = await ai.models.generateContent({
-        model: model,
-        contents: prompt,
-      });
+      const maxOutputTokens = Math.min(32000, Math.max(16000, (Number(stats.chats) || 1) * 240));
+      response = await ai.models.generateContent({ model, contents: prompt, config: {
+        maxOutputTokens, responseMimeType: 'application/json', responseSchema
+      } });
+      await recordUsage(response, { callType: 'daily_report', model, accountId });
+      usageRecorded = true;
+      const output = JSON.parse(response.text || '{}');
+      if (typeof output.report !== 'string' || !Array.isArray(output.dailyScores)) {
+        throw new Error('استجابة التقرير لا تطابق مخطط التقييم اليومي');
+      }
 
       console.log(`[Gemini] Report received successfully using ${model}.`);
       return {
         success: true,
-        report: response.text,
+        report: output.report,
+        scores: output.dailyScores,
         stats: stats,
         date: today,
         model: model
@@ -137,10 +189,9 @@ ${SALES_PLAYBOOK_RUBRIC}
       console.warn(`[Gemini] Model ${model} failed: ${error.message}.`);
       lastError = error;
       
-      // إذا كان هناك موديل تالٍ، ننتظر 1.2 ثانية لتجاوز الضغط المؤقت على السيرفرات
-      if (i < CANDIDATE_MODELS.length - 1) {
-        console.log('[Gemini] Waiting 1.2s before trying next fallback model...');
-        await sleep(1200);
+      if (!usageRecorded) {
+        await recordUsage(response, { callType: 'daily_report', model, accountId,
+          status: response ? 'invalid_response' : 'failed', error });
       }
     }
   }
@@ -161,11 +212,61 @@ ${SALES_PLAYBOOK_RUBRIC}
   };
 }
 
+/** Analyze only unseen or changed messages and return an append-only report update. */
+async function analyzeDailyChatsDelta(formattedDelta, stats, reportDate, audioSummary, previousScores = [], accountId = null, period = 'today') {
+  const prompt = `
+أنت مدقق جودة أداء مبيعات. هذا تحديث تزايدي لتقرير محفوظ سابقًا عن الفترة ${reportDate} (${period === 'last48h' ? 'آخر 48 ساعة' : 'اليوم'}).
+
+حلّل الرسائل الجديدة أو التي اكتمل تفريغها فقط كما وردت أدناه. لا تعِد تحليل أي محادثة قديمة ولا تكرر نص التقرير السابق. أخرج ملحقًا يُضاف إلى نهاية التقرير المحفوظ، ويذكر أن الأعداد الحالية محسوبة من قاعدة البيانات، ثم يعرض التغيير السلوكي الجديد بالتفصيل.
+
+الأعداد الحالية الدقيقة: ${JSON.stringify(stats)}
+التقييمات المحفوظة قبل هذا التحديث: ${JSON.stringify(previousScores)}
+
+## رسائل نصية جديدة أو متغيرة فقط:
+${formattedDelta || 'لا توجد رسائل نصية جديدة.'}
+
+${audioSummary ? `## تفريغات صوتية جديدة أو مكتملة فقط:\n${audioSummary}\n` : ''}
+
+قواعد التقرير:
+- لكل استنتاج سلوكي اذكر رقم واتساب الطالب كما يظهر في عنوان المحادثة، وتوقيتًا واقتباسًا حرفيًا. إذا لم يوجد رقم فاستخدم معرّف الشات وصرّح بأن الهاتف غير متاح.
+- اكتب لكل محادثة متأثرة ما الجديد، وما الذي يثبته الدليل، وما أثره المحتمل، والخطوة التالية. لا تكرر المحادثات أو الأدلة القديمة.
+- افصل بين الحقيقة والاستنتاج، ولا تخترع الأسعار أو نتائج الصفقات أو نية الموظف. لا تحكم على تفريغ صوت لم يكتمل.
+- استخدم أرقام قاعدة البيانات الحالية كما هي ولا تعِد عدّها من نص الرسائل.
+- dailyScores: أعد تقييمًا محدثًا لكل حساب ظاهر في stats.perAccount، مع الاستفادة من الدرجة السابقة كخط أساس ومن الأدلة الجديدة فقط كتغيير. لا تعِد تقييم تفاصيل سابقة غير موجودة هنا، ولا تخفض أو ترفع الدرجة دون دليل جديد. اكتب improvement موجزًا ومدعومًا.
+- إذا لم يوجد تغيير سلوكي ذي دلالة، اذكر أن الرسائل الجديدة لا تضيف ملاحظة تقييمية، ولا تملأ الملحق بحشو.
+
+أعد JSON صالحًا فقط: appendix (نص Markdown للملحق)، dailyScores (مصفوفة عنصر لكل حساب نشط تتضمن accountId وaccountName وoverallScore بين 0 و100 وimprovement).
+`;
+  const scoreSchema = { type: 'OBJECT', properties: {
+    accountId: { type: 'STRING' }, accountName: { type: 'STRING' }, overallScore: { type: 'INTEGER' }, improvement: { type: 'STRING' }
+  }, required: ['accountId', 'accountName', 'overallScore', 'improvement'] };
+  const responseSchema = { type: 'OBJECT', properties: {
+    appendix: { type: 'STRING' }, dailyScores: { type: 'ARRAY', items: scoreSchema }
+  }, required: ['appendix', 'dailyScores'] };
+  const model = GEMINI_MODEL;
+  try {
+    // Cap output using only the delta size; don't pay for a full-report-sized
+    // answer just because the cached report covers many historical chats.
+    const chats = Math.max(1, Number(stats.deltaChats) || 1);
+    const maxOutputTokens = Math.min(6000, Math.max(1200, chats * 700));
+    const response = await ai.models.generateContent({ model, contents: prompt, config: {
+      maxOutputTokens, responseMimeType: 'application/json', responseSchema
+    } });
+    await recordUsage(response, { callType: 'daily_report', model, accountId });
+    const output = JSON.parse(response.text || '{}');
+    if (typeof output.appendix !== 'string' || !Array.isArray(output.dailyScores)) throw new Error('استجابة تحديث التقرير غير مكتملة');
+    return { success: true, appendix: output.appendix, scores: output.dailyScores, model };
+  } catch (error) {
+    await recordUsage(null, { callType: 'daily_report', model, accountId, status: 'failed', error });
+    return { success: false, error: error.message || 'تعذر تحليل الرسائل الجديدة' };
+  }
+}
+
 
 /**
  * تحليل محادثة واحدة بشكل فوري.
  */
-async function analyzeSingleChat(messages, customerName, salesRepName) {
+async function analyzeSingleChat(messages, customerName, salesRepName, accountId = null) {
   const formattedChat = messages
     .map(m => `[${m.display_time || m.timestamp}] ${m.sender === 'sales' ? `${salesRepName} (السيلز)` : `${customerName} (العميل)`}: ${m.text}`)
     .join('\n');
@@ -189,9 +290,12 @@ ${formattedChat}
       const response = await ai.models.generateContent({
         model: model,
         contents: prompt,
+        config: { maxOutputTokens: 1200 },
       });
+      await recordUsage(response, { callType: 'single_chat', model, accountId });
       return { success: true, analysis: response.text, model };
     } catch (error) {
+      await recordUsage(null, { callType: 'single_chat', model, accountId, status: 'failed', error });
       console.warn(`[Gemini] Single chat analysis with ${model} failed, trying next...`);
     }
   }
@@ -206,7 +310,7 @@ ${formattedChat}
  * @param {string} repName  - اسم السيلز
  * @param {string} customerName - اسم العميل
  */
-async function transcribeAudio(filePath, sender, repName, customerName) {
+async function transcribeAudio(filePath, sender, repName, customerName, accountId = null) {
   const fs = require('fs');
 
   if (!fs.existsSync(filePath)) {
@@ -218,16 +322,13 @@ async function transcribeAudio(filePath, sender, repName, customerName) {
     ? `ممثل المبيعات (${repName})`
     : `العميل (${customerName})`;
 
-  const prompt = `أنت خبير مبيعات ومحلل نبرة صوت. مرجع تقييم صوت السيلز هو منهج Khatwa: افهم مرحلة الطالب واحتياجه، استمع وابنِ الثقة، اكتشف دوافعه ومخاوفه، قدّم معلومات وتوصية مناسبة وصادقة بلا ضغط، واتفق على خطوة تالية مناسبة. لا تخصم على محور لا يظهر في تسجيل قصير ولا تعتبر النبرة وحدها دليلًا كافيًا.
-استمع للتسجيل الصوتي المرفق من: ${senderLabel}.
-
-أعطني بشكل مختصر وعملي:
-1. **التفريغ النصي الكامل**: اكتب كل ما قاله بدقة.
-2. **نبرة الصوت**: (واثق / مترددد / عصبي / ترحيبي / مستعجل / غير مبالٍ)
-3. **تقييم الرسالة وفق المرجع**: إذا كان المرسل سيلز، أعطِ تقييمًا مبدئيًا من 100 لمحاور المرجع الظاهرة في هذه الرسالة، مع دليل وسبب؛ واستخدم «غير قابل للتقييم» للمحاور التي تحتاج سياق المحادثة. إذا كان المرسل عميلًا، لا تقيّم أداء السيلز بل استخرج احتياجه/مخاوفه الظاهرة.
-4. **ملاحظة سريعة** (جملة واحدة): هل الأسلوب احترافي؟
-
-أجب بالعربية فقط، بدون مقدمات.`;
+  const prompt = `استمع إلى التسجيل الصوتي من ${senderLabel}. أخرج النتيجة بهذا التنسيق فقط:
+<TRANSCRIPT>
+التفريغ النصي الكامل والدقيق باللغة المنطوقة، دون تلخيص. إذا تعذر فهم جزء فاكتب [غير واضح].
+</TRANSCRIPT>
+<TONE>
+وصف قصير للنبرة المسموعة فقط، مثل: هادئ وواثق، متردد، مستعجل، منزعج، محايد، أو غير واضح. لا تستنتج شخصية المتحدث أو نيته أو جودة أداء المبيعات.
+</TONE>`;
 
   // نستخدم CANDIDATE_MODELS لأنها تدعم multimodal
   for (const model of CANDIDATE_MODELS) {
@@ -250,28 +351,22 @@ async function transcribeAudio(filePath, sender, repName, customerName) {
           },
         ],
       });
+      await recordUsage(response, { callType: 'audio_transcription', model, accountId, audioInput: true });
 
-      const fullText    = response.text || '';
-      const transcriptMatch  = fullText.match(/التفريغ[^:]*:\s*([\s\S]+?)(?=\n\d\.|$)/i);
-      const toneMatch        = fullText.match(/نبرة[^:]*:\s*([^\n]+)/i);
-      const afterTranscript = transcriptMatch
-        ? fullText.slice((fullText.indexOf(transcriptMatch[0]) + transcriptMatch[0].length)).trim()
-        : fullText;
-      const audioAssessment = afterTranscript
-        .split('\n')
-        .filter(line => !/^\s*\d+\.\s*\*\*نبرة/.test(line) && !/^\s*\d+\.\s*\*\*التفريغ/.test(line))
-        .join('\n')
-        .trim();
+      const fullText = response.text || '';
+      const transcriptMatch = fullText.match(/<TRANSCRIPT>\s*([\s\S]*?)\s*<\/TRANSCRIPT>/i);
+      const toneMatch = fullText.match(/<TONE>\s*([\s\S]*?)\s*<\/TONE>/i);
+      const transcriptFallback = fullText.replace(/<TONE>[\s\S]*?<\/TONE>/i, '').trim();
 
       return {
         success:      true,
-        transcript:   transcriptMatch ? transcriptMatch[1].trim() : fullText.trim(),
-        toneAnalysis: [toneMatch ? toneMatch[1].trim() : null, audioAssessment]
-          .filter(Boolean).join(' | ') || null,
+        transcript:   (transcriptMatch ? transcriptMatch[1] : transcriptFallback).trim(),
+        toneAnalysis: toneMatch ? toneMatch[1].trim() : null,
         rawResponse:  fullText,
         model,
       };
     } catch (err) {
+      await recordUsage(null, { callType: 'audio_transcription', model, accountId, status: 'failed', error: err, audioInput: true });
       const msg = err.message || '';
       // انتقل مباشرة إلى الموديل الاحتياطي لتقليل انتظار تفريغ الصوت.
       if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED')) {
@@ -297,8 +392,10 @@ async function testConnection() {
         model: model,
         contents: 'قل "مرحباً! اتصال Gemini يعمل بنجاح." فقط.',
       });
+      await recordUsage(response, { callType: 'connection_test', model });
       return { success: true, message: `${response.text.trim()} (الموديل: ${model})`, model };
     } catch (error) {
+      await recordUsage(null, { callType: 'connection_test', model, status: 'failed', error });
       console.warn(`[Gemini] Test with ${model} failed, trying next...`);
     }
   }
@@ -307,7 +404,9 @@ async function testConnection() {
 
 
 module.exports = {
+  setUsageRecorder,
   analyzeDailyChats,
+  analyzeDailyChatsDelta,
   analyzeSingleChat,
   transcribeAudio,
   testConnection

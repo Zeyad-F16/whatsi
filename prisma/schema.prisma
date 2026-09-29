@@ -1,0 +1,135 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Message {
+  id            BigInt   @id @default(autoincrement()) @db.BigInt
+  accountId     String   @map("account_id")
+  accountName   String   @map("account_name")
+  customerName  String   @map("customer_name")
+  customerPhone String?  @map("customer_phone")
+  chatId        String?  @map("chat_id")
+  messageId     String?  @map("message_id")
+  sender        String
+  text          String
+  timestamp     DateTime @db.Timestamptz(6)
+  displayTime   String?  @map("display_time")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([accountId, messageId], map: "idx_messages_account_message")
+  @@index([accountId, timestamp], map: "idx_messages_account_timestamp")
+  @@index([timestamp], map: "idx_messages_timestamp")
+  @@map("messages")
+}
+
+model AudioMessage {
+  id            BigInt           @id @default(autoincrement()) @db.BigInt
+  accountId     String           @map("account_id")
+  accountName   String           @map("account_name")
+  customerName  String           @map("customer_name")
+  customerPhone String?          @map("customer_phone")
+  chatId        String?          @map("chat_id")
+  messageId     String?          @map("message_id")
+  sender        String
+  filePath      String           @default("") @map("file_path")
+  durationSec   Int?             @map("duration_sec")
+  transcript    String?
+  toneAnalysis  String?          @map("tone_analysis")
+  timestamp     DateTime         @db.Timestamptz(6)
+  displayTime   String?          @map("display_time")
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  jobOutbox     AudioJobOutbox[]
+
+  @@unique([accountId, messageId], map: "idx_audio_account_message")
+  @@index([accountId, timestamp], map: "idx_audio_account_timestamp")
+  @@map("audio_messages")
+}
+
+model AudioJobOutbox {
+  jobId       String       @id @map("job_id")
+  audioId     BigInt       @map("audio_id")
+  payload     Json         @db.JsonB
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  publishedAt DateTime?    @map("published_at") @db.Timestamptz(6)
+  audio       AudioMessage @relation(fields: [audioId], references: [id], onDelete: Cascade)
+
+  @@index([publishedAt, createdAt], map: "idx_audio_outbox_pending")
+  @@map("audio_job_outbox")
+}
+
+model DailyReportRevision {
+  accountKey String   @map("account_key")
+  reportDate String   @map("report_date") @db.VarChar(10)
+  version    Int      @default(1)
+  updatedAt  DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@id([accountKey, reportDate], map: "daily_report_revisions_pkey")
+  @@map("daily_report_revisions")
+}
+
+model DailyReportCache {
+  accountKey    String   @map("account_key")
+  reportDate    String   @map("report_date") @db.VarChar(10)
+  sourceVersion String   @map("source_version") @db.VarChar(80)
+  promptVersion String   @map("prompt_version") @db.VarChar(80)
+  payload       Json     @db.JsonB
+  generatedAt   DateTime @default(now()) @map("generated_at") @db.Timestamptz(6)
+
+  @@id([accountKey, reportDate], map: "daily_report_cache_pkey")
+  @@index([generatedAt], map: "idx_daily_report_cache_generated_at")
+  @@map("daily_report_cache")
+}
+
+model GeminiUsage {
+  id                BigInt   @id @default(autoincrement()) @db.BigInt
+  occurredAt        DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  callType          String   @map("call_type") @db.VarChar(40)
+  accountId         String?  @map("account_id")
+  model             String   @db.VarChar(100)
+  status            String   @db.VarChar(16)
+  inputTokens       Int?     @map("input_tokens")
+  inputTextTokens   Int?     @map("input_text_tokens")
+  inputAudioTokens  Int?     @map("input_audio_tokens")
+  cachedInputTokens Int?     @map("cached_input_tokens")
+  outputTokens      Int?     @map("output_tokens")
+  thinkingTokens    Int?     @map("thinking_tokens")
+  estimatedCostUsd  Decimal? @map("estimated_cost_usd") @db.Decimal(14, 8)
+  errorCode         String?  @map("error_code") @db.VarChar(80)
+
+  @@index([occurredAt], map: "idx_gemini_usage_occurred_at")
+  @@index([callType, occurredAt], map: "idx_gemini_usage_type_time")
+  @@index([accountId, occurredAt], map: "idx_gemini_usage_account_time")
+  @@map("gemini_usage")
+}
+
+model CustomerContactHistory {
+  contactHash     String   @id @map("contact_hash") @db.VarChar(64)
+  firstContactAt  DateTime @map("first_contact_at") @db.Timestamptz(6)
+  firstAccountId  String   @map("first_account_id")
+  baselineContact Boolean  @default(false) @map("baseline_contact")
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([firstContactAt], map: "idx_contact_history_first_contact")
+  @@map("customer_contact_history")
+}
+
+model SalesDailyScore {
+  accountId         String   @map("account_id")
+  scoreDate         DateTime @map("score_date") @db.Date
+  accountName       String   @map("account_name")
+  overallScore      Int      @map("overall_score")
+  improvement       String   @db.Text
+  leadCount         Int      @default(0) @map("lead_count")
+  followupCount     Int      @default(0) @map("followup_count")
+  conversationCount Int      @default(0) @map("conversation_count")
+  generatedAt       DateTime @default(now()) @map("generated_at") @db.Timestamptz(6)
+
+  @@id([accountId, scoreDate], map: "sales_daily_scores_pkey")
+  @@index([scoreDate], map: "idx_sales_daily_scores_date")
+  @@map("sales_daily_scores")
+}

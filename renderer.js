@@ -1,6 +1,6 @@
 /**
  * renderer.js
- * عملية العرض (Renderer Process) لتطبيق Whatsi.
+ * عملية العرض (Renderer Process) لتطبيق whatsi Z-ray.
  * مسؤولة عن:
  * - إدارة الحسابات والتبويبات
  * - إنشاء الـ webviews وتسجيلها مع الـ Main Process
@@ -20,13 +20,13 @@ const modalTitle = document.getElementById('modal-title');
 const nameInput = document.getElementById('account-name-input');
 const saveBtn = document.getElementById('save-name-btn');
 const reportAccountSelect = document.getElementById('report-account');
-const reportDateInput = document.getElementById('report-date');
 
 // ===== State =====
 let accounts = [];
 let editingAccountId = null;
 let currentView = 'whatsapp';
 let reportData = null;
+let reportPeriod = 'today';
 
 function normalizeReportPhone(value) {
   const western = String(value || '').replace(/[٠-٩۰-۹]/g, digit => {
@@ -60,10 +60,6 @@ async function persistAccounts() {
 
 // ===== Initialization =====
 async function init() {
-  // تعيين تاريخ اليوم كقيمة افتراضية لفلتر التقرير
-  const localToday = new Date();
-  reportDateInput.value = `${localToday.getFullYear()}-${String(localToday.getMonth() + 1).padStart(2, '0')}-${String(localToday.getDate()).padStart(2, '0')}`;
-  
   // تحميل الحسابات المحفوظة من الملف الدائم
   accounts = await ipcRenderer.invoke('load-accounts');
 
@@ -76,17 +72,7 @@ async function init() {
     switchToAccount(accounts[0].id);
   }
 
-  // تحديث الإحصائيات
-  refreshStats();
-  
-  // تحديث الإحصائيات كل 30 ثانية
-  setInterval(refreshStats, 30000);
-  
-  // الاستماع لتحديثات عداد الرسائل من الـ Main Process
-  ipcRenderer.on('message-count-updated', () => {
-    // إعادة القراءة بالفلاتر الحالية بدل استبدالها بإحصائيات غير مفلترة من Main.
-    refreshStats();
-  });
+  await loadMonthlyScores();
 }
 
 // ===== View Switching =====
@@ -100,41 +86,11 @@ window.switchView = function(view) {
   document.getElementById(`nav-${view}`).classList.add('active');
 
   if (view === 'report') {
-    refreshStats();
+    loadMonthlyScores();
   }
 };
 
-// ===== Stats =====
-async function refreshStats() {
-  try {
-    const accountId = reportAccountSelect.value || null;
-    const date      = reportDateInput.value      || null;
-    const stats = await ipcRenderer.invoke('get-today-stats', { accountId, date });
-    updateStatsDisplay(stats);
-  } catch (err) {
-    console.error('Error fetching stats:', err);
-  }
-}
-
-// تحديث الأرقام عند تغيير الحساب أو التاريخ
-reportAccountSelect.addEventListener('change', refreshStats);
-reportDateInput.addEventListener('change', refreshStats);
-
-function updateStatsDisplay(stats) {
-  if (!stats) return;
-  
-  const chats = stats.chats || 0;
-  const messages = stats.total_messages || 0;
-  const accounts_count = stats.accounts || 0;
-
-  // Sidebar stats
-  document.getElementById('stat-chats').textContent = chats;
-  document.getElementById('stat-messages').textContent = messages;
-
-  // Report cards
-  document.getElementById('card-chats').textContent = chats;
-  document.getElementById('card-messages').textContent = messages;
-}
+reportAccountSelect.addEventListener('change', loadMonthlyScores);
 
 // ===== Account Management =====
 addBtn.addEventListener('click', () => {
@@ -337,9 +293,13 @@ function addAccountToReportFilter(id, name) {
 }
 
 // ===== Gemini Report Generation =====
-window.generateReport = async function() {
-  const generateBtn = document.getElementById('generate-report-btn');
-  const btnText = document.getElementById('generate-btn-text');
+window.generateReport = async function(requestedPeriod = null) {
+  if (requestedPeriod === 'today' || requestedPeriod === 'last48h') reportPeriod = requestedPeriod;
+  const periodButtons = [...document.querySelectorAll('.period-btn')];
+  periodButtons.forEach(button => {
+    button.disabled = true;
+    button.classList.toggle('active', button.id === (reportPeriod === 'today' ? 'report-today-btn' : 'report-last48-btn'));
+  });
   const reportEmpty = document.getElementById('report-empty');
   const reportLoading = document.getElementById('report-loading');
   const reportOutput = document.getElementById('report-output');
@@ -352,12 +312,9 @@ window.generateReport = async function() {
   reportError.classList.add('hidden');
   reportLoading.classList.remove('hidden');
 
-  generateBtn.disabled = true;
-  btnText.textContent = 'جاري التحليل...';
-
   // مراحل التحميل
   const loadingMessages = [
-    'يقرأ كل الشاتات المسجلة اليوم...',
+    reportPeriod === 'today' ? 'يقرأ محادثات اليوم منذ منتصف الليل...' : 'يجمع المحادثات من آخر 48 ساعة...',
     'يحلل أسلوب التواصل والمبيعات...',
     'يكتشف الفرص الضائعة...',
     'يرتب التوصيات حسب الأولوية...',
@@ -371,9 +328,7 @@ window.generateReport = async function() {
 
   try {
     const accountId = reportAccountSelect.value || null;
-    const date = reportDateInput.value || null;
-
-    const result = await ipcRenderer.invoke('generate-daily-report', { accountId, date });
+    const result = await ipcRenderer.invoke('generate-daily-report', { accountId, period: reportPeriod });
 
     clearInterval(loadingInterval);
     reportLoading.classList.add('hidden');
@@ -381,7 +336,9 @@ window.generateReport = async function() {
     if (result.success) {
       reportData = result;
       displayReport(result);
+      renderMonthlyScores(result.monthlyScores || []);
       reportOutput.classList.remove('hidden');
+      if (result.cached) showToast('تم فتح التقرير المحفوظ دون طلب تحليل جديد', 'success');
     } else {
       showReportError(result.error || 'حدث خطأ غير متوقع');
     }
@@ -390,46 +347,146 @@ window.generateReport = async function() {
     reportLoading.classList.add('hidden');
     showReportError('فشل الاتصال بـ Gemini API: ' + err.message);
   } finally {
-    generateBtn.disabled = false;
-    btnText.textContent = 'استخراج تقرير اليوم';
+    periodButtons.forEach(button => { button.disabled = false; });
   }
 };
 
 function displayReport(result) {
   const reportText = document.getElementById('report-text');
 
-  // تحويل Markdown إلى HTML بسيط لعرض أفضل
   const formattedReport = formatMarkdown(result.report);
-  const customerNumbers = result.customerNumbers || [];
-  const contactsHtml = customerNumbers.length
-    ? `<section class="customer-phone-directory" dir="rtl"><strong>أرقام واتساب الملتقطة من واتساب</strong><div class="customer-phone-list">${customerNumbers.map(contact => {
-        const name = escapeHtml(contact.customer_name || 'عميل');
-        const account = escapeHtml(contact.account_name || '');
-        const { display: phone, copy: copyValue } = normalizeReportPhone(contact.customer_phone);
-        return `<div class="customer-phone-row"><span>${name}${account ? ` — ${account}` : ''}</span><bdi dir="ltr" class="phone-number">${escapeHtml(phone)}</bdi><button type="button" class="copy-canonical-phone" data-phone="${escapeHtml(copyValue)}">نسخ الرقم</button></div>`;
-      }).join('')}</div></section>`
+  const countSummary = `<div class="lead-followup-counts" dir="rtl"><span>ليدات جديدة: <b>${Number(result.leadCount) || 0}</b></span><span>فولو أب: <b>${Number(result.followupCount) || 0}</b></span></div>`;
+  const stats = result.currentStats || {};
+  const periodLabel = stats.period === 'last48h' ? 'آخر 48 ساعة' : 'اليوم';
+  const summaryStats = `<section class="report-current-stats" dir="rtl"><h3>الإحصائيات الحالية — ${periodLabel}</h3><div class="report-current-stats-grid"><span>المحادثات <b>${Number(stats.chats) || 0}</b></span><span>الرسائل <b>${Number(stats.total_messages) || 0}</b></span><span>رسائل السيلز <b>${Number(stats.sales_messages) || 0}</b></span><span>رسائل العملاء <b>${Number(stats.customer_messages) || 0}</b></span></div></section>`;
+  const updateNote = result.incrementalUpdate
+    ? '<p class="report-update-note" dir="rtl">تم إلحاق تحليل الرسائل الجديدة بنهاية التقرير. الدرجة داخل متن التقرير هي الدرجة الأصلية وقت التحليل الكامل، أما جدول التطور الشهري فيعرض أحدث درجة بعد تحليل الرسائل الجديدة. الإحصائيات أعلاه محسوبة الآن من قاعدة البيانات؛ ويظل التحليل السابق محفوظًا كما هو.</p>'
     : '';
-  reportText.innerHTML = contactsHtml + formattedReport;
+  reportText.innerHTML = countSummary + summaryStats + updateNote + formattedReport;
+  addPhoneCopyControls(reportText);
   reportText.onclick = async event => {
-    const button = event.target.closest('.copy-canonical-phone');
+    const button = event.target.closest('.copy-phone-inline');
     if (!button) return;
     const phone = button.dataset.phone;
     try {
       await navigator.clipboard.writeText(phone);
-      showToast('تم نسخ الرقم الملتقط من واتساب. يمكنك لصقه في واتساب.', 'success');
+      showToast('تم نسخ رقم الطالب.', 'success');
     } catch (error) {
       showToast('تعذر النسخ تلقائيًا. حدّد الرقم وانسخه يدويًا.', 'error');
     }
   };
 }
 
+function addPhoneCopyControls(container) {
+  const phonePattern = /(?<![\p{L}\p{N}])(?:\+\s?[0-9٠-٩۰-۹](?:[\s().-]*[0-9٠-٩۰-۹]){7,14}|01[0125](?:[\s().-]*[0-9٠-٩۰-۹]){8})(?![\p{L}\p{N}])/gu;
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      const parent = node.parentElement;
+      if (!parent || parent.closest('button, a, code, pre, script, style, .report-phone-copy')) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+  for (const node of textNodes) {
+    const text = node.nodeValue;
+    phonePattern.lastIndex = 0;
+    let match;
+    let cursor = 0;
+    const fragment = document.createDocumentFragment();
+    let changed = false;
+    while ((match = phonePattern.exec(text))) {
+      const { copy } = normalizeReportPhone(match[0]);
+      const digitCount = String(copy || '').replace(/\D/g, '').length;
+      if (!copy || digitCount < 10 || digitCount > 15) continue;
+      if (match.index > cursor) fragment.appendChild(document.createTextNode(text.slice(cursor, match.index)));
+      const wrapper = document.createElement('span');
+      wrapper.className = 'report-phone-copy';
+      const number = document.createElement('bdi');
+      number.dir = 'ltr';
+      number.textContent = match[0];
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'copy-phone-inline';
+      button.dataset.phone = copy;
+      button.title = 'نسخ رقم الطالب';
+      button.setAttribute('aria-label', `نسخ رقم الطالب ${match[0]}`);
+      button.textContent = 'نسخ';
+      wrapper.append(number, button);
+      fragment.appendChild(wrapper);
+      cursor = match.index + match[0].length;
+      changed = true;
+    }
+    if (changed) {
+      if (cursor < text.length) fragment.appendChild(document.createTextNode(text.slice(cursor)));
+      node.parentNode.replaceChild(fragment, node);
+    }
+  }
+}
+
+async function loadMonthlyScores() {
+  const now = new Date();
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const monthLabel = document.getElementById('monthly-score-month');
+  if (monthLabel) monthLabel.textContent = new Intl.DateTimeFormat('ar-EG', { month: 'long', year: 'numeric' }).format(now);
+  try {
+    const scores = await ipcRenderer.invoke('get-monthly-sales-scores', { month, accountId: reportAccountSelect.value || null });
+    renderMonthlyScores(scores);
+  } catch (error) {
+    console.error('Could not load monthly sales score history:', error);
+  }
+}
+
+function renderMonthlyScores(scores = []) {
+  const body = document.getElementById('monthly-scores-body');
+  if (!body) return;
+  if (!scores.length) {
+    body.innerHTML = '<tr><td colspan="7" class="scores-empty">لا توجد تقييمات محفوظة لهذا الشهر بعد. استخرج تقرير اليوم لحفظ تقييم.</td></tr>';
+    return;
+  }
+  body.innerHTML = scores.map(row => {
+    const rawDate = String(row.score_date).slice(0, 10);
+    const dateLabel = rawDate.split('-').reverse().join('/');
+    const score = Number(row.overall_score) || 0;
+    const scoreClass = score >= 80 ? 'score-high' : score >= 60 ? 'score-medium' : 'score-low';
+    return `<tr><td>${escapeHtml(dateLabel)}</td><td>${escapeHtml(row.account_name || '')}</td><td><span class="score-pill ${scoreClass}">${score}/100</span></td><td>${Number(row.lead_count) || 0}</td><td>${Number(row.followup_count) || 0}</td><td>${Number(row.conversation_count) || 0}</td><td class="score-improvement">${escapeHtml(row.improvement || '—')}</td></tr>`;
+  }).join('');
+}
+
 /**
  * تحويل Markdown بسيط إلى HTML للعرض داخل التطبيق.
  */
+function renderMarkdownTables(text) {
+  const lines = String(text || '').split('\n');
+  const rendered = [];
+  const isPipeRow = line => /^\s*\|.*\|\s*$/.test(line);
+  const cellsFrom = line => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
+  const isSeparator = line => isPipeRow(line) && cellsFrom(line).every(cell => /^:?-{3,}:?$/.test(cell));
+  for (let index = 0; index < lines.length;) {
+    if (!isPipeRow(lines[index]) || index + 1 >= lines.length || !isSeparator(lines[index + 1])) {
+      rendered.push(lines[index++]);
+      continue;
+    }
+    const headers = cellsFrom(lines[index]);
+    index += 2;
+    const rows = [];
+    while (index < lines.length && isPipeRow(lines[index]) && !isSeparator(lines[index])) {
+      rows.push(cellsFrom(lines[index]));
+      index++;
+    }
+    const normalizeRow = cells => headers.map((_, cellIndex) => escapeHtml(cells[cellIndex] || '—'));
+    const head = headers.map(cell => `<th scope="col">${escapeHtml(cell)}</th>`).join('');
+    const body = rows.map(cells => `<tr>${normalizeRow(cells).map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('');
+    rendered.push(`<div class="report-table-wrap" dir="rtl"><table class="report-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`);
+  }
+  return rendered.join('\n');
+}
+
 function formatMarkdown(text) {
   if (!text) return '';
 
-  return text
+  return renderMarkdownTables(text)
     // العناوين
     .replace(/^### (.+)$/gm, '<h3 class="report-h3">$1</h3>')
     .replace(/^## (.+)$/gm, '<h2 class="report-h2">$1</h2>')
@@ -438,17 +495,18 @@ function formatMarkdown(text) {
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     // النص المائل
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // اقتباسات الأدلة من المحادثات
+    .replace(/^> ?(.+)$/gm, '<blockquote class="report-quote">$1</blockquote>')
     // القوائم
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/^[*-] (.+)$/gm, '<li class="report-bullet">$1</li>')
     .replace(/^(\d+)\. (.+)$/gm, '<li class="numbered"><span class="num">$1.</span> $2</li>')
     // الأسطر الفاصلة
     .replace(/^---+$/gm, '<hr class="report-divider">')
     // الأسطر الفارغة
     .replace(/\n\n/g, '</p><p class="report-para">')
-    // التفاف كل شيء في فقرات
-    .replace(/^(?!<[h|l|p|h])/gm, '')
     // تنظيف القوائم
-    .replace(/(<li>.*<\/li>\n?)+/g, match => `<ul class="report-list">${match}</ul>`)
+    .replace(/(?:<li class="numbered">.*<\/li>\n?)+/g, match => `<ol class="report-ordered-list">${match}</ol>`)
+    .replace(/(?:<li class="report-bullet">.*<\/li>\n?)+/g, match => `<ul class="report-list">${match}</ul>`)
     // اعزل الأرقام بعد إكمال تحويل Markdown كي لا يتأثر اتجاهها بسياق العربية.
     .replace(/\+\s*\d[\d\s().-]*\d/g, phone => {
       const digitCount = (phone.match(/\d/g) || []).length;
@@ -502,7 +560,7 @@ window.copyReport = function() {
  * فحص الاتصال بـ Gemini API
  */
 window.testGeminiConnection = async function() {
-  showToast('جاري الاتصال بـ Gemini 3.8 Flash...', 'info');
+  showToast('جاري الاتصال بـ Gemini 3.1 Flash-Lite...', 'info');
   try {
     const res = await ipcRenderer.invoke('test-gemini-connection');
     if (res.success) {
@@ -512,30 +570,6 @@ window.testGeminiConnection = async function() {
     }
   } catch (err) {
     showToast(`❌ خطأ: ${err.message}`, 'error');
-  }
-};
-
-/**
- * مسح رسائل اليوم
- */
-window.clearTodayData = async function() {
-  const date = reportDateInput.value || null;
-  const accountId = reportAccountSelect.value || null;
-  const accountName = accountId ? accounts.find(account => account.id === accountId)?.name : 'كل الحسابات';
-  const label = date || 'اليوم';
-  if (!confirm(`سيتم حذف الرسائل النصية والصوتية المسجلة بتاريخ ${label} للحساب: ${accountName || 'المحدد'}، بما فيها ملفات الصوت. هل تريد المتابعة؟`)) return;
-  try {
-    const res = await ipcRenderer.invoke('clear-today-messages', { date, accountId });
-    if (res.success) {
-      await refreshStats();
-      showToast(`تم حذف ${res.deleted} رسالة (${res.messages} نصية و${res.audio} صوتية)`, 'info');
-      // إرجاع واجهة التقرير للحالة الأولية
-      document.getElementById('report-output').classList.add('hidden');
-      document.getElementById('report-error').classList.add('hidden');
-      document.getElementById('report-empty').classList.remove('hidden');
-    }
-  } catch (err) {
-    showToast(`تعذر حذف البيانات: ${err.message}`, 'error');
   }
 };
 
@@ -552,7 +586,7 @@ window.openMessagesPreview = async function() {
 
   try {
     const accountId = reportAccountSelect.value || null;
-    const messages = await ipcRenderer.invoke('get-today-messages-preview', { accountId });
+    const messages = await ipcRenderer.invoke('get-today-messages-preview', { accountId, period: reportPeriod });
 
     if (!messages || messages.length === 0) {
       container.innerHTML = `

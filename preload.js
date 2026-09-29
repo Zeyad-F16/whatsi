@@ -1,5 +1,5 @@
 /**
- * preload.js — Whatsi Message Interceptor
+ * preload.js — whatsi Z-ray Message Interceptor
  *
  * الاستراتيجية:
  * ─────────────
@@ -12,20 +12,29 @@
  */
 
 const { ipcRenderer } = require('electron');
+const DATA_RETENTION_MS = 48 * 60 * 60 * 1000;
+
+function isWithinDataRetention(timestampSeconds) {
+  const milliseconds = Number(timestampSeconds) * 1000;
+  return Number.isFinite(milliseconds) && milliseconds >= Date.now() - DATA_RETENTION_MS;
+}
 
 // ─── معلومات الحساب ──────────────────────────────────────────────────────────
 let accountId   = null;
 let accountName = null;
+let audioTimestampCutoffSeconds = Math.floor(Date.now() / 1000) - 300;
 
 ipcRenderer.on('set-account-info', (_e, info) => {
   accountId   = info.accountId;
   accountName = info.accountName;
+  if (Number.isFinite(info.audioTimestampCutoff)) audioTimestampCutoffSeconds = info.audioTimestampCutoff;
   console.log(`[Whatsi] Account set: ${accountName} (${accountId})`);
 });
 
-window.__whatsiSetAccount = (id, name) => {
+window.__whatsiSetAccount = (id, name, cutoffSeconds) => {
   accountId   = id;
   accountName = name;
+  if (Number.isFinite(cutoffSeconds)) audioTimestampCutoffSeconds = cutoffSeconds;
   console.log(`[Whatsi] Account set (js): ${accountName}`);
 };
 
@@ -97,7 +106,7 @@ function formatPhoneNumber(raw) {
 
 // نأخذ رقم الاتصال فقط من معرف واتساب الهاتفي؛ معرفات LID ليست أرقامًا قابلة للاتصال.
 function getCustomerWhatsAppNumber(chatId) {
-  if (!chatId || !/@(?:c\.us|s\.whatsapp\.net)$/.test(chatId)) return '';
+  if (!chatId || !/@(?:c\.us|s\.whatsapp\.net)$/i.test(chatId)) return '';
   const digits = chatId.split('@')[0].replace(/\D/g, '');
   if (digits.length < 8 || digits.length > 15) return '';
   const formatted = formatPhoneNumber(digits);
@@ -105,23 +114,136 @@ function getCustomerWhatsAppNumber(chatId) {
   return formatted.startsWith('+') ? formatted : '';
 }
 
+function serializeWhatsAppId(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value._serialized === 'string') return value._serialized;
+  if (value.user && value.server) return `${value.user}@${value.server}`;
+  return '';
+}
+
+function serializeMessageId(model) {
+  const key = safeModelValue(model, 'id');
+  const serialized = serializeWhatsAppId(key);
+  if (serialized) return serialized;
+
+  // Some WhatsApp builds expose the MessageKey fields without _serialized.
+  if (key && typeof key === 'object' && key.id != null && typeof key.fromMe === 'boolean') {
+    const remote = serializeWhatsAppId(key.remote);
+    if (remote) return `${key.fromMe}_${remote}_${key.id}`;
+  }
+
+  return '';
+}
+
+function getPhoneFromPhoneField(value) {
+  const serialized = serializeWhatsAppId(value);
+  const direct = getCustomerWhatsAppNumber(serialized);
+  if (direct) return direct;
+
+  // Some WA builds expose contact.phoneNumber as a bare formatted number.
+  if (typeof value !== 'string' || !/^[+\d\s().-]+$/.test(value.trim())) return '';
+  const digits = value.replace(/\D/g, '');
+  if (digits.length < 8 || digits.length > 15) return '';
+  const formatted = formatPhoneNumber(digits);
+  return formatted.startsWith('+') ? formatted : '';
+}
+
+function safeModelValue(model, key) {
+  try { return model?.get?.(key) ?? model?.[key] ?? null; }
+  catch (_) { return model?.[key] ?? null; }
+}
+
+const lidPhoneCache = new Map();
+const pendingLidLookups = new Map();
+const recentLidLookupAttempts = new Map();
+let lidLookupQueue = Promise.resolve();
+
+function queryLidOnWhatsApp(wid) {
+  const lookup = lidLookupQueue.then(async () => {
+    // Keep remote fallback lookups serialized to avoid bursts against WhatsApp.
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const query = window.require?.('WAWebQueryExistsJob');
+    if (typeof query?.queryWidExists !== 'function') return null;
+    return query.queryWidExists(wid);
+  });
+  lidLookupQueue = lookup.catch(() => null);
+  return lookup;
+}
+
+async function resolveLidPhoneNumber(lid, allowRemoteLookup = true) {
+  if (!/@lid$/i.test(lid || '')) return '';
+  if (lidPhoneCache.has(lid)) return lidPhoneCache.get(lid);
+  if (pendingLidLookups.has(lid)) return pendingLidLookups.get(lid);
+
+  const lookup = (async () => {
+    try {
+      const widFactory = window.require?.('WAWebWidFactory');
+      const apiContact = window.require?.('WAWebApiContact');
+      if (typeof widFactory?.createWid !== 'function' || typeof apiContact?.getPhoneNumber !== 'function') return '';
+
+      const wid = widFactory.createWid(lid);
+      let phone = getPhoneFromPhoneField(apiContact.getPhoneNumber(wid));
+      if (phone) {
+        lidPhoneCache.set(lid, phone);
+        return phone;
+      }
+
+      if (!allowRemoteLookup) return '';
+      const lastAttempt = recentLidLookupAttempts.get(lid) || 0;
+      if (Date.now() - lastAttempt < 15 * 60 * 1000) return '';
+      recentLidLookupAttempts.set(lid, Date.now());
+
+      await queryLidOnWhatsApp(wid);
+      phone = getPhoneFromPhoneField(apiContact.getPhoneNumber(wid));
+      if (phone) lidPhoneCache.set(lid, phone);
+      return phone;
+    } catch (error) {
+      console.warn('[Whatsi] Could not resolve a WhatsApp LID to a phone number:', error.message);
+      return '';
+    }
+  })();
+
+  pendingLidLookups.set(lid, lookup);
+  try { return await lookup; }
+  finally { pendingLidLookups.delete(lid); }
+}
+
 function isNonCustomerChat(chatId) {
   return typeof chatId === 'string' && /(?:@g\.us|@broadcast|@newsletter)$/i.test(chatId);
 }
 
-function getCustomerPhoneNumber(chatId, chat) {
+async function getCustomerPhoneNumber(chatId, chat, allowRemoteLookup = true) {
   const direct = getCustomerWhatsAppNumber(chatId);
   if (direct) return direct;
-  const contactId = chat?.contact?.id?._serialized
-    ?? chat?.contact?.get?.('id')?._serialized
-    ?? chat?.contact?.get?.('id')
-    ?? '';
-  const serialized = typeof contactId === 'string'
-    ? contactId
-    : contactId?._serialized || (contactId?.user && contactId?.server
-      ? `${contactId.user}@${contactId.server}`
-      : '');
-  return getCustomerWhatsAppNumber(serialized);
+
+  const contact = safeModelValue(chat, 'contact') || chat?.contact;
+  const phoneCandidates = [
+    safeModelValue(contact, 'phoneNumber'), contact?.phoneNumber,
+    safeModelValue(chat, 'phoneNumber'), chat?.phoneNumber
+  ];
+  for (const candidate of phoneCandidates) {
+    const phone = getPhoneFromPhoneField(candidate);
+    if (phone) return phone;
+  }
+
+  const contactId = safeModelValue(contact, 'id') || contact?.id;
+  const contactSerialized = serializeWhatsAppId(contactId);
+  const contactPhone = getCustomerWhatsAppNumber(contactSerialized);
+  if (contactPhone) return contactPhone;
+
+  const lid = /@lid$/i.test(chatId || '') ? chatId : contactSerialized;
+  const resolved = await resolveLidPhoneNumber(lid, allowRemoteLookup);
+  if (resolved) return resolved;
+
+  // A visible contact name may itself be a phone number; accept it only when
+  // the whole value is numeric/formatted phone text, never extract from names.
+  return getPhoneFromPhoneField(safeModelValue(chat, 'name') || chat?.name);
+}
+
+function saveResolvedPhone(account, chatId, phone) {
+  if (!phone || !chatId || !account) return;
+  ipcRenderer.send('customer-phone-resolved', { accountId: account.id, chatId, customerPhone: phone });
 }
 const sent = new Set();
 function dedup(id) {
@@ -233,13 +355,15 @@ function tryHookCollection() {
   const models = MsgCollection.getModelsArray?.() || MsgCollection.models;
   if (!models) return false; // لم يكتمل التهيئة بعد
 
-  MsgCollection.on('add', onMsgModel);
+  MsgCollection.on('add', model => { void onMsgModel(model); });
 
   // قراءة الرسائل الحالية في الذاكرة (آخر 50)
   try {
     const existing = MsgCollection.getModelsArray?.() || MsgCollection.models || [];
     const recent = existing.slice(-50);
-    recent.forEach(onMsgModel);
+    // Existing messages are resolved from WhatsApp's local LID cache only.
+    // Do not reinsert the recent history merely because this WebView restarted.
+    recent.forEach(model => { void onMsgModel(model, { resolveOnly: true, allowRemoteLookup: false }); });
     console.log(`[Whatsi] Read ${recent.length} existing messages from memory.`);
   } catch (_) {}
 
@@ -254,11 +378,13 @@ const sentAudio = new Set();
 /**
  * معالجة رسالة صوتية — نجلب الـ blob من URL المؤقت ونرسله للـ Main Process.
  */
-async function onAudioModel(model) {
+async function onAudioModel(model, options = {}) {
   try {
     // dedup — نبني fingerprint من id أو من chatId + timestamp
-    const rawId = model.id?._serialized ?? model.get?.('id')?._serialized ?? '';
+    const rawId = serializeMessageId(model);
     const tSec  = model.get?.('t') ?? model.t ?? Math.floor(Date.now() / 1000);
+    if (!isWithinDataRetention(tSec)) return;
+    const allowTranscription = Number(tSec) >= audioTimestampCutoffSeconds;
     const chatId = model.id?.remote?._serialized
                 ?? model.get?.('id')?.remote?._serialized ?? '';
     if (isNonCustomerChat(chatId)) return;
@@ -269,6 +395,10 @@ async function onAudioModel(model) {
     if (sentAudio.has(fingerprint)) return;
     sentAudio.add(fingerprint);
     if (sentAudio.size > 2000) sentAudio.clear();
+
+    const customerPhone = await getCustomerPhoneNumber(chatId, chat, allowTranscription && options.allowRemoteLookup !== false);
+    if (customerPhone) saveResolvedPhone({ id: accountId || 'account-default' }, chatId, customerPhone);
+    if (options.resolveOnly) return;
 
     // اسم العميل
     let customerName = 'عميل';
@@ -318,14 +448,14 @@ async function onAudioModel(model) {
       accountId:    accountId   || 'account-default',
       accountName:  accountName || 'سيلز',
       customerName: formatPhoneNumber(customerName),
-      customerPhone: getCustomerPhoneNumber(chatId, chat),
+      customerPhone,
       sender:       isOut ? 'sales' : 'customer',
       // بيانات فك التشفير (بدلاً من buffer مباشر)
-      mediaKey,
-      directPath,
-      mediaUrl,
-      encFilehash,
-      fileLength,
+      mediaKey:     allowTranscription ? mediaKey : null,
+      directPath:   allowTranscription ? directPath : null,
+      mediaUrl:     allowTranscription ? mediaUrl : null,
+      encFilehash:  allowTranscription ? encFilehash : null,
+      fileLength:   allowTranscription ? fileLength : 0,
       mimetype,
       // buffer فارغ دائماً الآن (التنزيل يتم في Main Process)
       buffer:       null,
@@ -341,7 +471,7 @@ async function onAudioModel(model) {
   }
 }
 
-function onMsgModel(model) {
+async function onMsgModel(model, options = {}) {
   try {
     if (!model) return;
 
@@ -349,7 +479,7 @@ function onMsgModel(model) {
 
     // ─── رسائل صوتية (ptt = push-to-talk, audio) ───────────────────────────
     if (type === 'ptt' || type === 'audio') {
-      onAudioModel(model);
+      await onAudioModel(model, options);
       return;
     }
 
@@ -361,8 +491,12 @@ function onMsgModel(model) {
     const body = model.get?.('body') ?? model.body ?? model.get?.('caption') ?? '';
     if (!body || String(body).trim().length === 0) return;
 
+    const tSec = model.get?.('t') ?? model.t ?? Math.floor(Date.now() / 1000);
+    if (!isWithinDataRetention(tSec)) return;
+    const allowRemoteLookup = Number(tSec) >= audioTimestampCutoffSeconds && options.allowRemoteLookup !== false;
+
     // dedup
-    const rawId = model.id?._serialized ?? model.get?.('id')?._serialized ?? '';
+    const rawId = serializeMessageId(model);
     if (rawId && !dedup(rawId)) return;
 
     const isOut = model.id?.fromMe === true
@@ -381,7 +515,9 @@ function onMsgModel(model) {
 
       const chat = model.get?.('chat')
                 ?? window.require?.('WAWebCollections')?.Chat?.get?.(chatId);
-      customerPhone = getCustomerPhoneNumber(chatId, chat);
+      customerPhone = await getCustomerPhoneNumber(chatId, chat, allowRemoteLookup);
+      if (customerPhone) saveResolvedPhone({ id: accountId || 'account-default' }, chatId, customerPhone);
+      if (options.resolveOnly) return;
 
       const nameFromChat    = chat?.get?.('name')    ?? chat?.name;
       const nameFromContact = chat?.contact?.get?.('name')     ?? chat?.contact?.name
@@ -394,7 +530,6 @@ function onMsgModel(model) {
     } catch (_) {}
 
     // وقت الرسالة
-    const tSec = model.get?.('t') ?? model.t ?? Math.floor(Date.now() / 1000);
     const tDate = new Date(tSec * 1000);
 
     dispatch({

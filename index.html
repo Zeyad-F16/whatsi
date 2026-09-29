@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Whatsi - مراقبة فريق المبيعات</title>
+  <title>whatsi Z-ray - مراقبة فريق المبيعات</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
@@ -14,8 +14,8 @@
     <!-- ===== SIDEBAR ===== -->
     <div class="sidebar" id="sidebar">
       <div class="logo">
-        <img src="whatsi.png" alt="Whatsi Logo" />
-        <h2>Whatsi</h2>
+        <img src="whatsi.png" alt="whatsi Z-ray Logo" />
+        <h2>whatsi Z-ray</h2>
         <span class="logo-subtitle">مراقبة السيلز</span>
       </div>
 
@@ -37,19 +37,6 @@
         <!-- Account tabs injected here -->
       </ul>
 
-      <!-- Stats Widget -->
-      <div class="stats-widget" id="stats-widget">
-        <div class="stat-item">
-          <span class="stat-value" id="stat-chats">0</span>
-          <span class="stat-label">محادثة</span>
-        </div>
-        <div class="stat-divider"></div>
-        <div class="stat-item">
-          <span class="stat-value" id="stat-messages">0</span>
-          <span class="stat-label">رسالة</span>
-        </div>
-      </div>
-
       <!-- Add Account Button -->
       <button id="add-account-btn" class="add-btn" title="إضافة حساب واتساب">
         <div class="add-btn-icon">+</div>
@@ -65,7 +52,7 @@
         <div id="webview-container" class="webview-container">
           <div id="welcome-screen" class="welcome-screen">
             <div class="welcome-icon">💬</div>
-            <h2>مرحباً في Whatsi</h2>
+            <h2>مرحباً في whatsi Z-ray</h2>
             <p>أضف حسابات واتساب الخاصة بفريق السيلز لبدء المراقبة</p>
             <div class="welcome-features">
               <div class="feature-card">
@@ -96,20 +83,16 @@
               <p class="report-subtitle"></p>
             </div>
             <div class="report-header-actions">
-              <div class="report-date-picker">
-                <label for="report-date">التاريخ:</label>
-                <input type="date" id="report-date" />
-              </div>
               <div class="report-account-filter">
                 <label for="report-account">الحساب:</label>
                 <select id="report-account">
                   <option value="">كل الحسابات</option>
                 </select>
               </div>
-              <button id="generate-report-btn" class="generate-btn" onclick="generateReport()">
-                <span class="generate-btn-icon">✨</span>
-                <span id="generate-btn-text">استخراج تقرير اليوم</span>
-              </button>
+              <div class="report-period-actions" role="group" aria-label="فترة التقرير">
+                <button class="period-btn" id="report-last48-btn" onclick="generateReport('last48h')">تقرير آخر 48 ساعة</button>
+                <button class="period-btn active" id="report-today-btn" onclick="generateReport('today')">تقرير اليوم</button>
+              </div>
             </div>
           </div>
 
@@ -119,24 +102,6 @@
               <span class="tb-icon">⚡</span>
               <span>فحص اتصال Gemini</span>
             </button>
-            <button class="toolbar-btn danger" onclick="clearTodayData()" title="حذف بيانات اليوم للحساب المحدد أو كل الحسابات">
-              <span class="tb-icon">🗑️</span>
-              <span>حذف البيانات</span>
-            </button>
-          </div>
-
-          <!-- Stats Cards -->
-          <div class="stats-cards" id="report-stats-cards">
-            <div class="stat-card">
-              <div class="stat-card-icon">💬</div>
-              <div class="stat-card-value" id="card-chats">0</div>
-              <div class="stat-card-label">محادثة مع عملاء</div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-card-icon">📨</div>
-              <div class="stat-card-value" id="card-messages">0</div>
-              <div class="stat-card-label">رسالة محفوظة</div>
-            </div>
           </div>
 
           <!-- Report Content Area -->
@@ -168,6 +133,22 @@
                 <button class="action-btn refresh-btn" onclick="generateReport()">🔄 إعادة التحليل</button>
               </div>
             </div>
+
+            <section class="monthly-scores-panel" id="monthly-scores-panel">
+              <div class="monthly-scores-heading">
+                <div>
+                  <h2>تطور تقييم السيلز هذا الشهر</h2>
+                  <p>يُحفظ تقييم كل يوم عند استخراج تقرير اليوم.</p>
+                </div>
+                <span class="monthly-score-month" id="monthly-score-month"></span>
+              </div>
+              <div class="monthly-scores-table-wrap">
+                <table class="monthly-scores-table">
+                  <thead><tr><th>التاريخ</th><th>السيلز</th><th>التقييم</th><th>ليدات</th><th>فولو أب</th><th>محادثات</th><th>أهم فرصة تطوير</th></tr></thead>
+                  <tbody id="monthly-scores-body"><tr><td colspan="7" class="scores-empty">لا توجد تقييمات محفوظة لهذا الشهر بعد.</td></tr></tbody>
+                </table>
+              </div>
+            </section>
 
             <!-- Error State -->
             <div class="report-error hidden" id="report-error">
