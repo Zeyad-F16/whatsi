@@ -453,6 +453,24 @@ function buildAudioSummary(audioRows) {
   return `═══ الرسائل الصوتية المسجلة: ${audioRows.length} رسالة ═══\n${lines.join('\n\n')}`;
 }
 
+// Keep a verbatim, database-backed copy for the report UI. Gemini may discuss
+// the audio, but must never be the source of the transcript/tone shown here.
+function buildAudioEvidence(audioRows) {
+  return audioRows.map(audio => ({
+    id: String(audio.id),
+    time: audio.display_time || audio.timestamp || '',
+    timestamp: audio.timestamp || '',
+    sender: audio.sender || '',
+    accountName: audio.account_name || '',
+    customerName: audio.customer_name || '',
+    customerPhone: db.formatPhoneNumber(audio.customer_phone || '') || '',
+    chatId: audio.chat_id || '',
+    durationSec: audio.duration_sec,
+    transcript: audio.transcript == null ? '' : String(audio.transcript),
+    tone: audio.tone_analysis == null ? '' : String(audio.tone_analysis)
+  }));
+}
+
 /** Generate a report once, then send only new/changed message events to Gemini. */
 ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => {
   if (!db) return { success: false, error: 'قاعدة البيانات غير متاحة' };
@@ -507,7 +525,8 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => 
 
   if (cached && !hasNewInputs) {
     return { ...cached, currentStats, leadCount: contacts.leadCount, followupCount: contacts.followupCount,
-      monthlyScores: await db.getMonthlySalesScores(selectedDate.slice(0, 7), accountId || null), cached: true, noNewMessages: true };
+      monthlyScores: await db.getMonthlySalesScores(selectedDate.slice(0, 7), accountId || null),
+      audioEvidence: buildAudioEvidence(audioRows), cached: true, noNewMessages: true };
   }
 
   getGemini();
@@ -560,6 +579,7 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => 
     }
     if (cacheableDate) await db.storeDailyReportCache(accountId || null, selectedDate, sourceVersion, report, period);
   }
+  if (report.success) report.audioEvidence = buildAudioEvidence(audioRows);
   return report;
 });
 

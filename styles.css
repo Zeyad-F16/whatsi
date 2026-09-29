@@ -1334,6 +1334,15 @@ webview.active {
 .report-current-stats-grid span { display:flex; justify-content:space-between; gap:8px; padding:9px 11px; border-radius:8px; background:var(--bg-medium); color:var(--text-secondary); font-size:.82rem; }
 .report-current-stats-grid b { color:var(--accent-teal); direction:ltr; }
 .report-update-note { margin:0 0 18px; padding:10px 12px; border-right:3px solid var(--accent-blue); border-radius:7px; background:rgba(59,130,246,.08); color:var(--text-secondary); font-size:.82rem; line-height:1.7; }
+.report-audio-evidence { margin:22px 0 8px; padding:18px; border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-card); }
+.report-audio-evidence > h2 { margin:0; color:var(--text-primary); font-size:1.05rem; }
+.audio-evidence-source { margin:7px 0 14px; color:var(--text-dim); font-size:.8rem; }
+.audio-evidence-card { margin-top:10px; padding:13px 15px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-medium); }
+.audio-evidence-card h3 { margin:0; color:var(--accent-teal); font-size:.88rem; }
+.audio-evidence-meta { margin:6px 0 10px; color:var(--text-dim); font-size:.78rem; }
+.audio-evidence-card > strong { color:var(--text-secondary); font-size:.82rem; }
+.audio-transcript-raw { margin:7px 0 10px; padding:11px 13px; border-radius:8px; background:rgba(0,0,0,.18); color:var(--text-primary); white-space:pre-wrap; overflow-wrap:anywhere; text-align:start; font:inherit; line-height:1.75; }
+.audio-evidence-tone { margin:0; color:var(--text-secondary); font-size:.82rem; line-height:1.7; white-space:pre-wrap; overflow-wrap:anywhere; }
 .contact-status-group { margin-top:12px; border-radius:10px; overflow:hidden; }
 .contact-status-group h3 { display:flex; align-items:center; gap:8px; padding:9px 12px; font-size:.86rem; }
 .contact-status-group h3 span { display:inline-grid; place-items:center; min-width:22px; height:22px; padding:0 5px; border-radius:50%; font-size:.72rem; }

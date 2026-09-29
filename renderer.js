@@ -363,6 +363,8 @@ function displayReport(result) {
     ? '<p class="report-update-note" dir="rtl">تم إلحاق تحليل الرسائل الجديدة بنهاية التقرير. الدرجة داخل متن التقرير هي الدرجة الأصلية وقت التحليل الكامل، أما جدول التطور الشهري فيعرض أحدث درجة بعد تحليل الرسائل الجديدة. الإحصائيات أعلاه محسوبة الآن من قاعدة البيانات؛ ويظل التحليل السابق محفوظًا كما هو.</p>'
     : '';
   reportText.innerHTML = countSummary + summaryStats + updateNote + formattedReport;
+  const audioSection = renderAudioEvidence(result.audioEvidence || []);
+  if (audioSection) reportText.appendChild(audioSection);
   addPhoneCopyControls(reportText);
   reportText.onclick = async event => {
     const button = event.target.closest('.copy-phone-inline');
@@ -375,6 +377,66 @@ function displayReport(result) {
       showToast('تعذر النسخ تلقائيًا. حدّد الرقم وانسخه يدويًا.', 'error');
     }
   };
+}
+
+function renderAudioEvidence(items) {
+  if (!items.length) return null;
+  const section = document.createElement('section');
+  section.className = 'report-audio-evidence';
+  section.dir = 'rtl';
+  const title = document.createElement('h2');
+  title.textContent = 'التفريغ النصي ونبرة الرسائل الصوتية';
+  const sourceNote = document.createElement('p');
+  sourceNote.className = 'audio-evidence-source';
+  sourceNote.textContent = 'النص والنبرة أدناه معروضان دون إعادة صياغة.';
+  section.append(title, sourceNote);
+
+  for (const item of items) {
+    const card = document.createElement('article');
+    card.className = 'audio-evidence-card';
+    const heading = document.createElement('h3');
+    const sender = item.sender === 'sales'
+      ? `السيلز: ${item.accountName || 'غير معروف'}`
+      : `العميل: ${item.customerName || 'غير معروف'}`;
+    heading.textContent = `رسالة صوتية — ${item.time || item.timestamp || 'وقت غير متاح'} — ${sender}`;
+    card.appendChild(heading);
+
+    const identifiers = [];
+    if (item.customerPhone) identifiers.push(`رقم واتساب: ${item.customerPhone}`);
+    else if (item.chatId) identifiers.push(`معرّف المحادثة: ${item.chatId}`);
+    if (Number(item.durationSec) > 0) identifiers.push(`المدة: ${Number(item.durationSec)} ثانية`);
+    if (identifiers.length) {
+      const meta = document.createElement('p');
+      meta.className = 'audio-evidence-meta';
+      meta.textContent = identifiers.join(' · ');
+      card.appendChild(meta);
+    }
+
+    const transcriptLabel = document.createElement('strong');
+    transcriptLabel.textContent = 'التفريغ الصوتي';
+    const transcript = document.createElement('pre');
+    transcript.className = 'audio-transcript-raw';
+    transcript.dir = 'auto';
+    transcript.textContent = item.transcript === '' ? 'لا يوجد تفريغ محفوظ في قاعدة البيانات.' : item.transcript;
+    const tone = document.createElement('p');
+    tone.className = 'audio-evidence-tone';
+    tone.textContent = `نبرة الصوت: ${item.tone === '' ? 'غير متاحة' : item.tone}`;
+    card.append(transcriptLabel, transcript, tone);
+    section.appendChild(card);
+  }
+  return section;
+}
+
+function formatAudioEvidenceText(items = []) {
+  if (!items.length) return '';
+  const entries = items.map(item => {
+    const sender = item.sender === 'sales' ? `السيلز (${item.accountName || 'غير معروف'})` : `العميل (${item.customerName || 'غير معروف'})`;
+    const phone = item.customerPhone ? `رقم واتساب: ${item.customerPhone}` : `معرّف المحادثة: ${item.chatId || 'غير متاح'}`;
+    const transcript = item.transcript === '' ? 'لا يوجد تفريغ محفوظ.' : item.transcript;
+    const tone = item.tone === '' ? 'غير متاحة' : item.tone;
+    return `الوقت: ${item.time || item.timestamp || 'غير متاح'}\n${sender} — ${phone}\nالتفريغ الصوتي:\n${transcript}\nنبرة الصوت:\n${tone}`;
+  });
+  return `\n\nالتفريغ النصي ونبرة الرسائل الصوتية\n\n${entries.join('\n\n')}`;
 }
 
 function addPhoneCopyControls(container) {
@@ -548,7 +610,7 @@ function showReportError(message) {
 window.copyReport = function() {
   if (!reportData) return;
   
-  navigator.clipboard.writeText(reportData.report).then(() => {
+  navigator.clipboard.writeText(reportData.report + formatAudioEvidenceText(reportData.audioEvidence || [])).then(() => {
     const btn = document.querySelector('.copy-btn');
     btn.textContent = '✅ تم النسخ!';
     showToast('تم نسخ التقرير إلى الحافظة بنجاح', 'success');
