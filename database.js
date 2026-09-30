@@ -184,16 +184,20 @@ function normalizePhoneDigits(value) {
 }
 
 async function registerCustomerContact(client, data, baseline = false) {
-  const hash = contactHash(data.customerPhone, data.chatId);
-  if (!hash) return null;
+  const phoneHash = contactHash(data.customerPhone, null);
+  const chatHash = contactHash(null, data.chatId);
+  const hashes = [...new Set([phoneHash, chatHash].filter(Boolean))];
+  if (!hashes.length) return null;
   const timestamp = data.timestamp || new Date().toISOString();
   const accountId = data.accountId || 'unknown';
-  await client.query(
-    'INSERT INTO customer_contact_history (contact_hash,first_contact_at,first_account_id,baseline_contact,updated_at) VALUES ($1,$2,$3,$4,NOW()) ' +
-    'ON CONFLICT (contact_hash) DO UPDATE SET first_account_id=CASE WHEN EXCLUDED.first_contact_at < customer_contact_history.first_contact_at THEN EXCLUDED.first_account_id ELSE customer_contact_history.first_account_id END,' +
-    'first_contact_at=LEAST(customer_contact_history.first_contact_at,EXCLUDED.first_contact_at),baseline_contact=customer_contact_history.baseline_contact OR EXCLUDED.baseline_contact,updated_at=NOW()',
-    [hash, timestamp, accountId, baseline]);
-  return hash;
+  for (const hash of hashes) {
+    await client.query(
+      'INSERT INTO customer_contact_history (contact_hash,first_contact_at,first_account_id,baseline_contact,updated_at) VALUES ($1,$2,$3,$4,NOW()) ' +
+      'ON CONFLICT (contact_hash) DO UPDATE SET first_account_id=CASE WHEN EXCLUDED.first_contact_at < customer_contact_history.first_contact_at THEN EXCLUDED.first_account_id ELSE customer_contact_history.first_account_id END,' +
+      'first_contact_at=LEAST(customer_contact_history.first_contact_at,EXCLUDED.first_contact_at),baseline_contact=customer_contact_history.baseline_contact OR EXCLUDED.baseline_contact,updated_at=NOW()',
+      [hash, timestamp, accountId, baseline]);
+  }
+  return phoneHash || chatHash;
 }
 
 async function backfillCustomerContactHistory() {
