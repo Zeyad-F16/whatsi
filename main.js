@@ -471,6 +471,32 @@ function buildAudioEvidence(audioRows) {
   }));
 }
 
+function buildCurrentMessageTimes(messages, audioRows) {
+  const byAccount = new Map();
+  const events = [
+    ...messages.map(row => ({ ...row, kind: 'نصية' })),
+    ...audioRows.map(row => ({ ...row, kind: 'صوتية' }))
+  ];
+  for (const row of events) {
+    const milliseconds = new Date(row.timestamp).getTime();
+    if (!Number.isFinite(milliseconds)) continue;
+    const accountId = row.account_id || 'unknown';
+    if (!byAccount.has(accountId)) byAccount.set(accountId, { accountId, accountName: row.account_name || 'غير معروف', events: [] });
+    const time = row.display_time || new Date(milliseconds).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    byAccount.get(accountId).events.push({ milliseconds, time, kind: row.kind, sender: row.sender });
+  }
+  return Object.fromEntries([...byAccount].map(([accountId, account]) => {
+    account.events.sort((a, b) => a.milliseconds - b.milliseconds);
+    const first = account.events[0] || null;
+    const last = account.events.at(-1) || null;
+    const lastSales = [...account.events].reverse().find(event => event.sender === 'sales') || null;
+    const lastCustomer = [...account.events].reverse().find(event => event.sender === 'customer') || null;
+    const summary = event => event ? { time: event.time, kind: event.kind } : null;
+    return [accountId, { accountId, accountName: account.accountName, first: summary(first), last: summary(last),
+      lastSales: summary(lastSales), lastCustomer: summary(lastCustomer) }];
+  }));
+}
+
 /** Generate a report once, then send only new/changed message events to Gemini. */
 ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => {
   if (!db) return { success: false, error: 'قاعدة البيانات غير متاحة' };
@@ -516,11 +542,12 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => 
   const newMessages = messages.filter(row => oldTextManifest[String(row.id)] !== manifest.text[String(row.id)]);
   const newAudioRows = audioRows.filter(row => oldAudioManifest[String(row.id)] !== manifest.audio[String(row.id)]);
   const hasNewInputs = newMessages.length > 0 || newAudioRows.length > 0;
+  const messageTimesByAccount = buildCurrentMessageTimes(messages, audioRows);
   const currentStats = {
     accounts: dateStats.accounts, chats: dateStats.chats, total_messages: dateStats.total_messages,
     sales_messages: dateStats.sales_messages, customer_messages: dateStats.customer_messages,
     leadCount: contacts.leadCount, followupCount: contacts.followupCount, perAccount: dateStats.perAccount,
-    period, calculatedAt: new Date().toISOString()
+    messageTimesByAccount, period, calculatedAt: new Date().toISOString()
   };
 
   if (cached && !hasNewInputs) {
@@ -539,7 +566,7 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => 
     ? selectedDate.split('-').reverse().join('/')
     : `آخر 48 ساعة حتى ${new Date().toLocaleString('ar-EG')}`;
   const reportStats = { ...dateStats, textActivityByAccount: textActivity,
-    leadCount: contacts.leadCount, followupCount: contacts.followupCount, period };
+    messageTimesByAccount, leadCount: contacts.leadCount, followupCount: contacts.followupCount, period };
   const audioSummary = buildAudioSummary(newAudioRows);
 
   let report;

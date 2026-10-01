@@ -1338,6 +1338,17 @@ webview.active {
 .report-current-stats-grid span { display:flex; justify-content:space-between; gap:8px; padding:9px 11px; border-radius:8px; background:var(--bg-medium); color:var(--text-secondary); font-size:.82rem; }
 .report-current-stats-grid b { color:var(--accent-teal); direction:ltr; }
 .report-update-note { margin:0 0 18px; padding:10px 12px; border-right:3px solid var(--accent-blue); border-radius:7px; background:rgba(59,130,246,.08); color:var(--text-secondary); font-size:.82rem; line-height:1.7; }
+.report-message-times { margin:0 0 20px; padding:16px; border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-card); }
+.report-message-times > h2 { margin:0; color:var(--text-primary); font-size:1rem; }
+.message-times-note { margin:6px 0 12px; color:var(--text-dim); font-size:.78rem; }
+.message-times-card { margin-top:10px; padding:12px 14px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-medium); }
+.message-times-card h3 { margin:0 0 9px; color:var(--accent-blue); font-size:.88rem; }
+.message-times-table { width:100%; border-collapse:collapse; font-size:.82rem; }
+.message-times-table th, .message-times-table td { padding:8px 10px; border-bottom:1px solid var(--border-color); text-align:right; }
+.message-times-table tr:last-child th, .message-times-table tr:last-child td { border-bottom:0; }
+.message-times-table th { width:38%; color:var(--text-secondary); font-weight:600; }
+.message-times-table td { color:var(--text-primary); direction:rtl; }
+.message-times-table .message-times-sales td { color:var(--accent-teal); font-weight:700; }
 .report-audio-evidence { margin:22px 0 8px; padding:18px; border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-card); }
 .report-audio-evidence > h2 { margin:0; color:var(--text-primary); font-size:1.05rem; }
 .audio-evidence-source { margin:7px 0 14px; color:var(--text-dim); font-size:.8rem; }

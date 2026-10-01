@@ -360,9 +360,15 @@ function displayReport(result) {
   const periodLabel = stats.period === 'last48h' ? 'آخر 48 ساعة' : 'اليوم';
   const summaryStats = `<section class="report-current-stats" dir="rtl"><h3>الإحصائيات الحالية — ${periodLabel}</h3><div class="report-current-stats-grid"><span>المحادثات <b>${Number(stats.chats) || 0}</b></span><span>الرسائل <b>${Number(stats.total_messages) || 0}</b></span><span>رسائل السيلز <b>${Number(stats.sales_messages) || 0}</b></span><span>رسائل العملاء <b>${Number(stats.customer_messages) || 0}</b></span></div></section>`;
   const updateNote = result.incrementalUpdate
-    ? '<p class="report-update-note" dir="rtl">تم إلحاق تحليل الرسائل الجديدة بنهاية التقرير. الدرجة داخل متن التقرير هي الدرجة الأصلية وقت التحليل الكامل، أما جدول التطور الشهري فيعرض أحدث درجة بعد تحليل الرسائل الجديدة. الإحصائيات أعلاه محسوبة الآن من قاعدة البيانات؛ ويظل التحليل السابق محفوظًا كما هو.</p>'
+    ? '<p class="report-update-note" dir="rtl">تم إلحاق تحليل الرسائل الجديدة بنهاية التقرير. أوقات الرسائل المعروضة أدناه محسوبة من سجلات قاعدة البيانات الحالية؛ أما متن التحليل المحفوظ فيحتفظ بتوقيته وقت إنشائه. الدرجة داخل المتن هي الدرجة الأصلية، بينما يعرض جدول التطور الشهري أحدث درجة بعد تحليل الرسائل الجديدة.</p>'
     : '';
   reportText.innerHTML = countSummary + summaryStats + updateNote + formattedReport;
+  const messageTimesSection = renderMessageTimes(result.currentStats?.messageTimesByAccount || {});
+  if (messageTimesSection) {
+    const reportHeading = reportText.querySelector('.report-h1');
+    if (reportHeading) reportText.insertBefore(messageTimesSection, reportHeading);
+    else reportText.appendChild(messageTimesSection);
+  }
   const audioSection = renderAudioEvidence(result.audioEvidence || []);
   if (audioSection) reportText.appendChild(audioSection);
   addPhoneCopyControls(reportText);
@@ -377,6 +383,70 @@ function displayReport(result) {
       showToast('تعذر النسخ تلقائيًا. حدّد الرقم وانسخه يدويًا.', 'error');
     }
   };
+}
+
+function renderMessageTimes(accountsById) {
+  const accounts = Object.values(accountsById || {});
+  if (!accounts.length) return null;
+
+  const section = document.createElement('section');
+  section.className = 'report-message-times';
+  section.dir = 'rtl';
+  const heading = document.createElement('h2');
+  heading.textContent = 'أوقات الرسائل المسجلة حالياً';
+  const note = document.createElement('p');
+  note.className = 'message-times-note';
+  note.textContent = 'الأوقات محسوبة من الرسائل النصية والصوتية المحفوظة في قاعدة البيانات.';
+  section.append(heading, note);
+
+  for (const account of accounts) {
+    const card = document.createElement('article');
+    card.className = 'message-times-card';
+    const accountHeading = document.createElement('h3');
+    accountHeading.textContent = account.accountName || 'الحساب';
+    card.appendChild(accountHeading);
+
+    const table = document.createElement('table');
+    table.className = 'message-times-table';
+    const body = document.createElement('tbody');
+    const rows = [
+      ['أول رسالة في الفترة', account.first],
+      ['آخر رسالة مسجلة', account.last],
+      ['آخر رسالة من السيلز', account.lastSales],
+      ['آخر رسالة من العميل', account.lastCustomer]
+    ];
+    for (const [label, value] of rows) {
+      const row = document.createElement('tr');
+      if (label === 'آخر رسالة من السيلز') row.className = 'message-times-sales';
+      const labelCell = document.createElement('th');
+      labelCell.scope = 'row';
+      labelCell.textContent = label;
+      const valueCell = document.createElement('td');
+      valueCell.textContent = value ? `${value.time} · ${value.kind}` : 'لا توجد رسالة';
+      row.append(labelCell, valueCell);
+      body.appendChild(row);
+    }
+    table.appendChild(body);
+    card.appendChild(table);
+    section.appendChild(card);
+  }
+  return section;
+}
+
+function formatMessageTimesText(accountsById = {}) {
+  const accounts = Object.values(accountsById);
+  if (!accounts.length) return '';
+  const rows = accounts.map(account => {
+    const value = item => item ? `${item.time} (${item.kind})` : 'لا توجد رسالة';
+    return [
+      `الحساب: ${account.accountName || 'غير معروف'}`,
+      `أول رسالة في الفترة: ${value(account.first)}`,
+      `آخر رسالة مسجلة: ${value(account.last)}`,
+      `آخر رسالة من السيلز: ${value(account.lastSales)}`,
+      `آخر رسالة من العميل: ${value(account.lastCustomer)}`
+    ].join('\n');
+  });
+  return `\n\nأوقات الرسائل المسجلة حالياً\n${rows.join('\n\n')}`;
 }
 
 function renderAudioEvidence(items) {
@@ -612,7 +682,7 @@ function showReportError(message) {
 window.copyReport = function() {
   if (!reportData) return;
   
-  navigator.clipboard.writeText(reportData.report + formatAudioEvidenceText(reportData.audioEvidence || [])).then(() => {
+  navigator.clipboard.writeText(reportData.report + formatMessageTimesText(reportData.currentStats?.messageTimesByAccount || {}) + formatAudioEvidenceText(reportData.audioEvidence || [])).then(() => {
     const btn = document.querySelector('.copy-btn');
     btn.textContent = '✅ تم النسخ!';
     showToast('تم نسخ التقرير إلى الحافظة بنجاح', 'success');
