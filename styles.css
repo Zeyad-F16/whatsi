@@ -1090,6 +1090,10 @@ webview.active {
   color: var(--accent-gold);
   font-weight: 600;
 }
+.report-text strong.report-error-flag,
+.report-text strong.report-improvement-flag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:.82em; }
+.report-text strong.report-error-flag { color:#ffb4b4; background:rgba(220,53,69,.16); border:1px solid rgba(220,53,69,.38); }
+.report-text strong.report-improvement-flag { color:#ffe19a; background:rgba(217,153,0,.14); border:1px solid rgba(217,153,0,.34); }
 
 /* Report Actions */
 .report-actions {

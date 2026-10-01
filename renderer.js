@@ -553,6 +553,8 @@ function formatMarkdown(text) {
     .replace(/^### (.+)$/gm, '<h3 class="report-h3">$1</h3>')
     .replace(/^## (.+)$/gm, '<h2 class="report-h2">$1</h2>')
     .replace(/^# (.+)$/gm, '<h1 class="report-h1">$1</h1>')
+    .replace(/\*\*خطأ كتابي مثبت\*\*/g, '<strong class="report-error-flag">خطأ كتابي مثبت</strong>')
+    .replace(/\*\*فرصة لتحسين الأسلوب\*\*/g, '<strong class="report-improvement-flag">فرصة لتحسين الأسلوب</strong>')
     // النص العريض
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     // النص المائل
