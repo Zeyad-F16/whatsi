@@ -12,6 +12,7 @@
  */
 
 const { ipcRenderer } = require('electron');
+const { formatCairoTime } = require('./timezone');
 const DATA_RETENTION_MS = 48 * 60 * 60 * 1000;
 
 function isWithinDataRetention(timestampSeconds) {
@@ -266,7 +267,7 @@ function dispatch(msg) {
     sender:       msg.isOut ? 'sales' : 'customer',
     text:         msg.text.trim(),
     timestamp:    msg.timestamp || new Date().toISOString(),
-    displayTime:  msg.displayTime || new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+    displayTime:  msg.displayTime || formatCairoTime(),
   });
   console.log(`[Whatsi] ✉ ${msg.isOut ? 'OUT→' : 'IN←'} "${msg.text.slice(0, 60)}" | ${msg.customerName}`);
 }
@@ -461,7 +462,7 @@ async function onAudioModel(model, options = {}) {
       buffer:       null,
       durationSec,
       timestamp:    tDate.toISOString(),
-      displayTime:  tDate.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+      displayTime:  formatCairoTime(tDate),
     });
 
     console.log(`[Whatsi] 🎤 Audio ${isOut ? 'OUT→' : 'IN←'} | ${customerName} | ${durationSec ? durationSec + 'ث' : '?ث'}`);
@@ -540,7 +541,7 @@ async function onMsgModel(model, options = {}) {
       isOut,
       text:        String(body).trim(),
       timestamp:   tDate.toISOString(),
-      displayTime: tDate.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+      displayTime: formatCairoTime(tDate),
     });
   } catch (_) {}
 }

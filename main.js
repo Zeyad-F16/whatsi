@@ -12,6 +12,7 @@ const { app, BrowserWindow, ipcMain, session, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Queue, Worker } = require('bullmq');
+const { formatCairoTime, formatCairoDateTime } = require('./timezone');
 
 // تحميل متغيرات البيئة من .env
 require('dotenv').config({ path: path.join(__dirname, '.env') });
@@ -440,7 +441,7 @@ function buildAudioSummary(audioRows) {
     const formattedPhone = db.formatPhoneNumber(audio.customer_phone || '');
     const student = formattedPhone ? `رقم واتساب الطالب: ${formattedPhone}` : `رقم واتساب الطالب غير متاح؛ معرّف الشات: ${audio.chat_id || 'غير متاح'}`;
     const duration = audio.duration_sec ? ` مدة ${audio.duration_sec} ثانية` : '';
-    const time = audio.display_time || audio.timestamp;
+    const time = audio.display_time || formatCairoTime(new Date(audio.timestamp));
     if (audio.transcript) {
       const tone = audio.tone_analysis ? ` | نبرة الصوت: ${audio.tone_analysis}` : '';
       return `[${time}] 🎤 رسالة صوتية ${index + 1} — ${sender} | ${student}${duration}\nالتفريغ: "${audio.transcript}"${tone}`;
@@ -482,7 +483,7 @@ function buildCurrentMessageTimes(messages, audioRows) {
     if (!Number.isFinite(milliseconds)) continue;
     const accountId = row.account_id || 'unknown';
     if (!byAccount.has(accountId)) byAccount.set(accountId, { accountId, accountName: row.account_name || 'غير معروف', events: [] });
-    const time = row.display_time || new Date(milliseconds).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+    const time = row.display_time || formatCairoTime(new Date(milliseconds));
     byAccount.get(accountId).events.push({ milliseconds, time, kind: row.kind, sender: row.sender });
   }
   return Object.fromEntries([...byAccount].map(([accountId, account]) => {
@@ -564,7 +565,7 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => 
   const textActivity = cached ? (dateStats.perAccount || {}) : (fullText.stats.perAccount || {});
   const reportDate = period === 'today'
     ? selectedDate.split('-').reverse().join('/')
-    : `آخر 48 ساعة حتى ${new Date().toLocaleString('ar-EG')}`;
+    : `آخر 48 ساعة حتى ${formatCairoDateTime()}`;
   const reportStats = { ...dateStats, textActivityByAccount: textActivity,
     messageTimesByAccount, leadCount: contacts.leadCount, followupCount: contacts.followupCount, period };
   const audioSummary = buildAudioSummary(newAudioRows);

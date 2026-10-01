@@ -1,6 +1,7 @@
 /** PostgreSQL data access for whatsi Z-ray. */
 const { Pool } = require('pg');
 const crypto = require('crypto');
+const { formatCairoTime, getCairoDateString, getCairoDateRange } = require('./timezone');
 
 let pool;
 const DATA_RETENTION_MS = 48 * 60 * 60 * 1000;
@@ -124,28 +125,16 @@ async function close() {
   if (pool) { const p = pool; pool = null; await p.end(); }
 }
 
-function getDateRange(date) {
-  const selected = date || getLocalDateString();
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(selected);
-  if (!match) throw new Error('تاريخ غير صالح');
-  const localStart = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  if (getLocalDateString(localStart) !== selected) throw new Error('تاريخ غير صالح');
-  const localEnd = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + 1);
-  return [localStart.toISOString(), localEnd.toISOString()];
-}
-
 function getReportRange(period = 'today', date = null) {
   if (normalizeReportPeriod(period) === 'last48h') {
     const end = new Date();
     return [new Date(end.getTime() - DATA_RETENTION_MS).toISOString(), end.toISOString()];
   }
-  const [start, end] = getDateRange(date);
+  const [start, end] = getCairoDateRange(date || getLocalDateString());
   return [start, new Date(Math.min(Date.parse(end), Date.now())).toISOString()];
 }
 
-function getLocalDateString(d = new Date()) {
-  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
-}
+function getLocalDateString(d = new Date()) { return getCairoDateString(d); }
 
 function customerKeySql(alias) {
   // Canonicalize Egyptian local/international forms so one person is not
@@ -221,7 +210,7 @@ async function saveMessage(data) {
   const values = [data.accountId || 'unknown', data.accountName || 'Unknown Account', data.customerName || 'Unknown Customer',
     data.customerPhone || null, data.chatId || null, data.messageId || null,
     ['sales', 'customer'].includes(data.sender) ? data.sender : 'customer', data.text || '',
-    data.timestamp || new Date().toISOString(), data.displayTime || new Date().toLocaleTimeString('ar-EG')];
+      data.timestamp || new Date().toISOString(), data.displayTime || formatCairoTime()];
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
@@ -358,7 +347,7 @@ async function getAudioMessages(accountId = null, date = null, period = 'today')
   let accountClause = '';
   if (accountId) { values.push(accountId); accountClause = ' AND account_id=$3'; }
   const r = await getPool().query('SELECT * FROM audio_messages WHERE timestamp >= $1 AND timestamp < $2 AND ' + RETENTION_SQL + ' AND ' + isDirectChatSql('audio_messages') + accountClause + ' ORDER BY timestamp', values);
-  return r.rows;
+  return r.rows.map(row => ({ ...row, display_time: formatCairoTime(new Date(row.timestamp)) }));
 }
 
 async function getCustomerNumbers(accountId = null, date = null, period = 'today') {
@@ -438,7 +427,8 @@ async function getTodayMessages(accountId = null, date = null, period = 'today')
   if (accountId) { values.push(accountId); accountClause = ' AND account_id=$3'; }
   const sql = 'SELECT id,account_id,account_name,customer_name,customer_phone,chat_id,message_id,sender,text,timestamp,display_time FROM messages ' +
     'WHERE timestamp >= $1 AND timestamp < $2 AND ' + RETENTION_SQL + ' AND ' + isDirectChatSql('messages') + accountClause + ' ORDER BY account_id,customer_name,timestamp';
-  return (await getPool().query(sql, values)).rows;
+  const { rows } = await getPool().query(sql, values);
+  return rows.map(row => ({ ...row, display_time: formatCairoTime(new Date(row.timestamp)) }));
 }
 
 function formatPhoneNumber(raw) {
