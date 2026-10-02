@@ -12,9 +12,30 @@
  */
 
 const { ipcRenderer } = require('electron');
-const crypto = require('crypto');
-const { formatCairoTime } = require('./timezone');
 const DATA_RETENTION_MS = 48 * 60 * 60 * 1000;
+
+// Keep the preload self-contained: sandboxed Electron preloads only support a
+// small allowlist of require() modules and cannot load local CommonJS files.
+function formatCairoTime(date = new Date()) {
+  return new Intl.DateTimeFormat('ar-EG', {
+    timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit'
+  }).format(date);
+}
+
+function stableHash(value) {
+  // A deterministic 64-bit non-cryptographic fingerprint is sufficient for
+  // fallback message IDs and avoids requiring Node's crypto module in preload.
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193);
+    second = Math.imul(second ^ (code + index), 0x01000193);
+  }
+  const a = (first >>> 0).toString(16).padStart(8, '0');
+  const b = (second >>> 0).toString(16).padStart(8, '0');
+  return a + b;
+}
 
 function isWithinDataRetention(timestampSeconds) {
   const milliseconds = Number(timestampSeconds) * 1000;
@@ -168,7 +189,7 @@ function serializeMessageId(model) {
 
 function fallbackMessageId({ chatId, timestampSeconds, sender, kind, content = '' }) {
   const stableParts = [accountId || 'account-default', chatId || '', timestampSeconds, sender, kind, content];
-  return `fallback:${crypto.createHash('sha256').update(stableParts.join('\u0000')).digest('hex')}`;
+  return `fallback:${stableHash(stableParts.join('\u0000'))}`;
 }
 
 function getPhoneFromPhoneField(value) {
