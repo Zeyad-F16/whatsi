@@ -130,7 +130,12 @@ function getReportRange(period = 'today', date = null) {
     const end = new Date();
     return [new Date(end.getTime() - DATA_RETENTION_MS).toISOString(), end.toISOString()];
   }
-  const [start, end] = getCairoDateRange(date || getLocalDateString());
+  let reportDate = date || getLocalDateString();
+  if (period === 'yesterday' && !date) {
+    const [year, month, day] = reportDate.split('-').map(Number);
+    reportDate = new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10);
+  }
+  const [start, end] = getCairoDateRange(reportDate);
   return [start, new Date(Math.min(Date.parse(end), Date.now())).toISOString()];
 }
 

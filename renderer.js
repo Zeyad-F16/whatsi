@@ -294,11 +294,13 @@ function addAccountToReportFilter(id, name) {
 
 // ===== Gemini Report Generation =====
 window.generateReport = async function(requestedPeriod = null) {
-  if (requestedPeriod === 'today' || requestedPeriod === 'last48h') reportPeriod = requestedPeriod;
+  if (requestedPeriod === 'today' || requestedPeriod === 'yesterday' || requestedPeriod === 'last48h') reportPeriod = requestedPeriod;
   const periodButtons = [...document.querySelectorAll('.period-btn')];
   periodButtons.forEach(button => {
     button.disabled = true;
-    button.classList.toggle('active', button.id === (reportPeriod === 'today' ? 'report-today-btn' : 'report-last48-btn'));
+    const activeButtonId = reportPeriod === 'today' ? 'report-today-btn'
+      : reportPeriod === 'yesterday' ? 'report-yesterday-btn' : 'report-last48-btn';
+    button.classList.toggle('active', button.id === activeButtonId);
   });
   const reportEmpty = document.getElementById('report-empty');
   const reportLoading = document.getElementById('report-loading');
@@ -314,7 +316,9 @@ window.generateReport = async function(requestedPeriod = null) {
 
   // مراحل التحميل
   const loadingMessages = [
-    reportPeriod === 'today' ? 'يقرأ محادثات اليوم منذ منتصف الليل...' : 'يجمع المحادثات من آخر 48 ساعة...',
+    reportPeriod === 'today' ? 'يقرأ محادثات اليوم منذ منتصف الليل...'
+      : reportPeriod === 'yesterday' ? 'يقرأ تقرير ورسائل أمس المحفوظة...'
+        : 'يجمع المحادثات من آخر 48 ساعة...',
     'يحلل أسلوب التواصل والمبيعات...',
     'يكتشف الفرص الضائعة...',
     'يرتب التوصيات حسب الأولوية...',
@@ -357,7 +361,7 @@ function displayReport(result) {
   const formattedReport = formatMarkdown(result.report);
   const countSummary = `<div class="lead-followup-counts" dir="rtl"><span>ليدات جديدة: <b>${Number(result.leadCount) || 0}</b></span><span>فولو أب: <b>${Number(result.followupCount) || 0}</b></span></div>`;
   const stats = result.currentStats || {};
-  const periodLabel = stats.period === 'last48h' ? 'آخر 48 ساعة' : 'اليوم';
+  const periodLabel = stats.period === 'last48h' ? 'آخر 48 ساعة' : stats.period === 'yesterday' ? 'أمس' : 'اليوم';
   const summaryStats = `<section class="report-current-stats" dir="rtl"><h3>الإحصائيات الحالية — ${periodLabel}</h3><div class="report-current-stats-grid"><span>المحادثات <b>${Number(stats.chats) || 0}</b></span><span>الرسائل <b>${Number(stats.total_messages) || 0}</b></span><span>رسائل السيلز <b>${Number(stats.sales_messages) || 0}</b></span><span>رسائل العملاء <b>${Number(stats.customer_messages) || 0}</b></span></div></section>`;
   const updateNote = result.incrementalUpdate
     ? '<p class="report-update-note" dir="rtl">تم إلحاق تحليل الرسائل الجديدة بنهاية التقرير. أوقات الرسائل المعروضة أدناه محسوبة من سجلات قاعدة البيانات الحالية؛ أما متن التحليل المحفوظ فيحتفظ بتوقيته وقت إنشائه. الدرجة داخل المتن هي الدرجة الأصلية، بينما يعرض جدول التطور الشهري أحدث درجة بعد تحليل الرسائل الجديدة.</p>'

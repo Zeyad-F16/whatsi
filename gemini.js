@@ -95,7 +95,7 @@ async function analyzeDailyChats(formattedChats, stats, reportDate, audioSummary
 - ليدات جديدة محسوبة من سجل الاتصال: ${stats.leadCount || 0}
 - فولو أب محسوب من سجل الاتصال: ${stats.followupCount || 0}
 - توزيع الشاتات والرسائل لكل حساب (محسوب من قاعدة البيانات): ${JSON.stringify(stats.perAccount || {})}
-- الفترة: ${period === 'last48h' ? 'آخر 48 ساعة متحركة' : 'اليوم من منتصف الليل حتى الآن'}
+- الفترة: ${period === 'last48h' ? 'آخر 48 ساعة متحركة' : period === 'yesterday' ? 'أمس من منتصف الليل حتى نهايته' : 'اليوم من منتصف الليل حتى الآن'}
 
 ## مؤشرات محسوبة محليًا للرسائل النصية فقط (JSON):
 ${JSON.stringify(stats.textActivityByAccount || {}, null, 2)}
@@ -217,7 +217,7 @@ ${SALES_PLAYBOOK_RUBRIC}
 /** Analyze only unseen or changed messages and return an append-only report update. */
 async function analyzeDailyChatsDelta(formattedDelta, stats, reportDate, audioSummary, previousScores = [], accountId = null, period = 'today') {
   const prompt = `
-أنت مدقق جودة أداء مبيعات. هذا تحديث تزايدي لتقرير محفوظ سابقًا عن الفترة ${reportDate} (${period === 'last48h' ? 'آخر 48 ساعة' : 'اليوم'}).
+أنت مدقق جودة أداء مبيعات. هذا تحديث تزايدي لتقرير محفوظ سابقًا عن الفترة ${reportDate} (${period === 'last48h' ? 'آخر 48 ساعة' : period === 'yesterday' ? 'أمس' : 'اليوم'}).
 
 حلّل الرسائل الجديدة أو التي اكتمل تفريغها فقط كما وردت أدناه. لا تعِد تحليل أي محادثة قديمة ولا تكرر نص التقرير السابق. أخرج ملحقًا يُضاف إلى نهاية التقرير المحفوظ، يعرض التغيير السلوكي الجديد بالتفصيل، ولا يكرر أعداد النشاط الظاهرة في جدول الإحصائيات أعلى التقرير.
 

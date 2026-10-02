@@ -32,9 +32,20 @@ let audioWorker;
 let publishingAudioJobs = false;
 let outboxTimer;
 let retentionTimer;
+let dailyReportTimer;
+let automaticReportsRunning = false;
+const automaticReportsCompleted = new Map();
+const automaticReportRetry = new Map();
+const reportGenerationLocks = new Map();
 
 
 let mainWindow;
+
+function shiftDateByDays(dateString, days) {
+  const [year, month, day] = String(dateString).split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
 
 function getGemini() {
   if (!gemini) {
@@ -192,6 +203,7 @@ async function initializeServices() {
   retentionTimer = setInterval(() => {
     purgeExpiredData().catch(err => console.error('[Retention] Automatic cleanup failed:', err.message));
   }, 10 * 60 * 1000);
+  startDailyReportScheduler();
   console.log('[Main] PostgreSQL and BullMQ/Redis are ready.');
 }
 
@@ -601,10 +613,16 @@ function buildCurrentMessageTimes(messages, audioRows) {
 }
 
 /** Generate a report once, then send only new/changed message events to Gemini. */
-ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => {
+async function generateDailyReportInternal({ accountId, period, allowEmpty = false } = {}) {
   if (!db) return { success: false, error: 'قاعدة البيانات غير متاحة' };
-  period = period === 'last48h' ? 'last48h' : 'today';
-  const selectedDate = db.getLocalDateString();
+  period = ['today', 'yesterday', 'last48h'].includes(period) ? period : 'today';
+  const cairoToday = db.getLocalDateString();
+  const selectedDate = period === 'yesterday' ? shiftDateByDays(cairoToday, -1) : cairoToday;
+  const reportDate = period === 'today'
+    ? selectedDate.split('-').reverse().join('/')
+    : period === 'yesterday'
+      ? `أمس (${selectedDate.split('-').reverse().join('/')})`
+      : `آخر 48 ساعة حتى ${formatCairoDateTime()}`;
   const cutoffDate = db.getLocalDateString(new Date(Date.now() - DATA_RETENTION_MS));
   const cacheableDate = selectedDate > cutoffDate;
   const sourceVersion = await db.getDailyReportRevision(accountId || null, selectedDate, period);
@@ -637,7 +655,8 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => 
     delete cached._cachePromptVersion;
     cached.report = removeDuplicateActivitySection(cached.report);
   }
-  if (!cached && messages.length === 0 && audioRows.length === 0) {
+  if (cached?.noActivity && (messages.length > 0 || audioRows.length > 0)) cached = null;
+  if (!cached && messages.length === 0 && audioRows.length === 0 && !allowEmpty) {
     return { success: false, error: 'لا توجد رسائل محفوظة لهذه الفترة. تأكد من أن التطبيق كان يعمل والتقط الرسائل.' };
   }
   const oldManifest = cached && cached.processedManifest || { text: {}, audio: {} };
@@ -654,8 +673,20 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => 
     messageTimesByAccount, period, calculatedAt: new Date().toISOString()
   };
 
+  if (!cached && messages.length === 0 && audioRows.length === 0 && allowEmpty) {
+    const report = {
+      success: true, period, date: selectedDate, stats: reportStatsForEmpty(dateStats, contacts),
+      currentStats, leadCount: contacts.leadCount, followupCount: contacts.followupCount,
+      report: `# تقرير أداء المبيعات — ${reportDate}\n\nلا توجد رسائل أو تسجيلات محفوظة لهذا الحساب خلال هذا اليوم؛ لذلك لا تتوفر أدلة لتقييم الأداء.`,
+      scores: [], monthlyScores: await db.getMonthlySalesScores(selectedDate.slice(0, 7), accountId || null),
+      audioEvidence: [], processedManifest: manifest, cached: false, noActivity: true
+    };
+    if (cacheableDate) await db.storeDailyReportCache(accountId || null, selectedDate, sourceVersion, report, period);
+    return report;
+  }
+
   if (cached && !hasNewInputs) {
-    return { ...cached, currentStats, leadCount: contacts.leadCount, followupCount: contacts.followupCount,
+    return { ...cached, period, currentStats, leadCount: contacts.leadCount, followupCount: contacts.followupCount,
       monthlyScores: await db.getMonthlySalesScores(selectedDate.slice(0, 7), accountId || null),
       audioEvidence: buildAudioEvidence(audioRows), cached: true, noNewMessages: true };
   }
@@ -666,9 +697,6 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => 
     ? await db.formatMessagesForGemini(accountId || null, selectedDate, period, newMessages, messages)
     : fullText;
   const textActivity = cached ? (dateStats.perAccount || {}) : (fullText.stats.perAccount || {});
-  const reportDate = period === 'today'
-    ? selectedDate.split('-').reverse().join('/')
-    : `آخر 48 ساعة حتى ${formatCairoDateTime()}`;
   const reportStats = { ...dateStats, textActivityByAccount: textActivity,
     messageTimesByAccount, leadCount: contacts.leadCount, followupCount: contacts.followupCount, period };
   const audioSummary = buildAudioSummary(newAudioRows);
@@ -700,7 +728,7 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => 
     report.followupCount = contacts.followupCount;
     report.currentStats = currentStats;
     report.processedManifest = manifest;
-    if (period === 'today' && Array.isArray(report.scores) && report.scores.length) {
+    if (period !== 'last48h' && Array.isArray(report.scores) && report.scores.length) {
       const leadCounts = {}, followupCounts = {};
       for (const contact of contacts.leads) leadCounts[contact.accountId] = (leadCounts[contact.accountId] || 0) + 1;
       for (const contact of contacts.followups) followupCounts[contact.accountId] = (followupCounts[contact.accountId] || 0) + 1;
@@ -716,7 +744,81 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => 
   }
   if (report.success) report.audioEvidence = buildAudioEvidence(audioRows);
   return report;
-});
+}
+
+async function generateDailyReport(request = {}) {
+  if (!db) return generateDailyReportInternal(request);
+  const period = ['today', 'yesterday', 'last48h'].includes(request.period) ? request.period : 'today';
+  const today = db.getLocalDateString();
+  const reportDate = period === 'yesterday' ? shiftDateByDays(today, -1) : today;
+  const lockKey = `${request.accountId || '__all__'}::${period}::${reportDate}`;
+  if (reportGenerationLocks.has(lockKey)) return reportGenerationLocks.get(lockKey);
+  const pending = generateDailyReportInternal({ ...request, period });
+  reportGenerationLocks.set(lockKey, pending);
+  try {
+    return await pending;
+  } finally {
+    if (reportGenerationLocks.get(lockKey) === pending) reportGenerationLocks.delete(lockKey);
+  }
+}
+
+function reportStatsForEmpty(dateStats, contacts) {
+  return { ...dateStats, leadCount: contacts.leadCount, followupCount: contacts.followupCount };
+}
+
+ipcMain.handle('generate-daily-report', (_event, request) => generateDailyReport(request));
+
+function readConfiguredSalesAccounts() {
+  try {
+    const filePath = getAccountsFilePath();
+    if (!fs.existsSync(filePath)) return [];
+    const value = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    return Array.isArray(value) ? value.filter(account => account && account.id && account.name) : [];
+  } catch (error) {
+    console.error('[Daily Reports] Could not read configured accounts:', error.message);
+    return [];
+  }
+}
+
+async function runAutomaticPreviousDayReports() {
+  if (!db || automaticReportsRunning) return;
+  automaticReportsRunning = true;
+  const cairoToday = db.getLocalDateString();
+  for (const date of automaticReportsCompleted.keys()) if (date !== cairoToday) automaticReportsCompleted.delete(date);
+  for (const [accountId, retryState] of automaticReportRetry.entries()) if (retryState.date !== cairoToday) automaticReportRetry.delete(accountId);
+  const completed = automaticReportsCompleted.get(cairoToday) || new Set();
+  automaticReportsCompleted.set(cairoToday, completed);
+  try {
+    const accounts = readConfiguredSalesAccounts();
+    for (const account of accounts) {
+      if (completed.has(account.id)) continue;
+      const retry = automaticReportRetry.get(account.id);
+      if (retry && retry.date === cairoToday && retry.nextAttemptAt > Date.now()) continue;
+      try {
+        const result = await generateDailyReport({ accountId: account.id, period: 'yesterday', allowEmpty: true });
+        if (!result.success) throw new Error(result.error || 'لم يكتمل إنشاء التقرير');
+        completed.add(account.id);
+        automaticReportRetry.delete(account.id);
+        console.log(`[Daily Reports] Yesterday report ready for ${account.name} (${shiftDateByDays(cairoToday, -1)}${result.cached ? ', reused saved report' : ''}).`);
+      } catch (error) {
+        const attempts = (retry && retry.date === cairoToday ? retry.attempts : 0) + 1;
+        const delayMs = Math.min(4 * 60 * 60 * 1000, 5 * 60 * 1000 * (2 ** Math.min(attempts - 1, 6)));
+        automaticReportRetry.set(account.id, { date: cairoToday, attempts, nextAttemptAt: Date.now() + delayMs });
+        console.error(`[Daily Reports] Could not create yesterday report for ${account.name}; retry ${attempts} in ${Math.round(delayMs / 60000)} min:`, error.message);
+      }
+    }
+  } finally {
+    automaticReportsRunning = false;
+  }
+}
+
+function startDailyReportScheduler() {
+  // Run once on startup to catch a missed midnight, then check periodically.
+  runAutomaticPreviousDayReports().catch(error => console.error('[Daily Reports] Scheduler failed:', error.message));
+  dailyReportTimer = setInterval(() => {
+    runAutomaticPreviousDayReports().catch(error => console.error('[Daily Reports] Scheduler failed:', error.message));
+  }, 5 * 60 * 1000);
+}
 
 ipcMain.handle('get-monthly-sales-scores', async (_event, { month, accountId } = {}) => {
   if (!db) return [];
@@ -861,6 +963,7 @@ app.on('before-quit', event => {
   shuttingDown = true;
   if (outboxTimer) clearInterval(outboxTimer);
   if (retentionTimer) clearInterval(retentionTimer);
+  if (dailyReportTimer) clearInterval(dailyReportTimer);
   Promise.allSettled([
     audioWorker?.close(), audioQueue?.close(), db?.close()
   ]).finally(() => app.quit());
