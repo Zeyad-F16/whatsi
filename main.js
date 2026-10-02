@@ -48,6 +48,17 @@ function getGemini() {
 const webviewInfoMap = new Map(); // webContentsId -> { accountId, accountName }
 const captureHeartbeatState = new Map(); // accountId -> last preload capture-health snapshot
 
+function removeDuplicateActivitySection(report) {
+  if (typeof report !== 'string') return report;
+  return report
+    .replace(/^#{1,6}\s*(?:ثانياً|ثانيًا)\s*[:：]\s*مؤشرات النشاط[^\r\n]*\r?\n[\s\S]*?(?=^#{1,6}\s*(?:ثالثاً|ثالثًا|رابعاً|رابعًا|خامساً|خامسًا)\s*[:：]|$(?![\s\S]))/gm, '')
+    .replace(/^(#{1,6}\s*)(?:ثالثاً|ثالثًا)(\s*[:：]\s*مراجعة تفصيلية)/gm, '$1ثانياً$2')
+    .replace(/^(#{1,6}\s*)(?:رابعاً|رابعًا)(\s*[:：]\s*إحصائيات الأداء)/gm, '$1ثالثاً$2')
+    .replace(/^(#{1,6}\s*)(?:خامساً|خامسًا)(\s*[:：]\s*توصيات تدريبية)/gm, '$1رابعاً$2')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -559,6 +570,7 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => 
   if (cached) {
     delete cached._cacheSourceVersion;
     delete cached._cachePromptVersion;
+    cached.report = removeDuplicateActivitySection(cached.report);
   }
   if (!cached && messages.length === 0 && audioRows.length === 0) {
     return { success: false, error: 'لا توجد رسائل محفوظة لهذه الفترة. تأكد من أن التطبيق كان يعمل والتقط الرسائل.' };
@@ -614,6 +626,7 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => 
   }
 
   if (report.success) {
+    report.report = removeDuplicateActivitySection(report.report);
     report.period = period;
     report.leadCount = contacts.leadCount;
     report.followupCount = contacts.followupCount;

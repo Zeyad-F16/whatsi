@@ -46,7 +46,7 @@ async function initialize() {
 }
 
 const ALL_ACCOUNTS_KEY = '__all__';
-const REPORT_PROMPT_VERSION = 'daily-report-v9-incremental-audit';
+const REPORT_PROMPT_VERSION = 'daily-report-v10-no-duplicate-activity-stats';
 
 function normalizeReportPeriod(period) {
   return period === 'last48h' ? 'last48h' : 'today';
