@@ -12,6 +12,7 @@
  */
 
 const { ipcRenderer } = require('electron');
+const crypto = require('crypto');
 const { formatCairoTime } = require('./timezone');
 const DATA_RETENTION_MS = 48 * 60 * 60 * 1000;
 
@@ -135,6 +136,11 @@ function serializeMessageId(model) {
   }
 
   return '';
+}
+
+function fallbackMessageId({ chatId, timestampSeconds, sender, kind, content = '' }) {
+  const stableParts = [accountId || 'account-default', chatId || '', timestampSeconds, sender, kind, content];
+  return `fallback:${crypto.createHash('sha256').update(stableParts.join('\u0000')).digest('hex')}`;
 }
 
 function getPhoneFromPhoneField(value) {
@@ -327,9 +333,11 @@ function dispatch(msg) {
 
 // ─── الطبقة 2: WAWebCollections.Msg ──────────────────────────────────────────
 let collectionHooked = false;
+let hookedMsgCollection = null;
+let msgCollectionAddHandler = null;
 
 function tryHookCollection() {
-  if (collectionHooked) return true;
+  if (!accountId) return false;
   if (typeof window.require !== 'function') return false;
 
   // نتأكد أن واتساب ويب اكتمل تحميله قبل استدعاء WAWebCollections
@@ -356,19 +364,36 @@ function tryHookCollection() {
   const models = MsgCollection.getModelsArray?.() || MsgCollection.models;
   if (!models) return false; // لم يكتمل التهيئة بعد
 
-  MsgCollection.on('add', model => { void onMsgModel(model); });
+  if (collectionHooked && hookedMsgCollection === MsgCollection) return true;
+  if (hookedMsgCollection && msgCollectionAddHandler) {
+    try { hookedMsgCollection.off?.('add', msgCollectionAddHandler); } catch (_) {}
+  }
 
-  // قراءة الرسائل الحالية في الذاكرة (آخر 50)
+  msgCollectionAddHandler = model => { void onMsgModel(model); };
+  MsgCollection.on('add', msgCollectionAddHandler);
+  hookedMsgCollection = MsgCollection;
+  collectionHooked = true;
+
+  // استعادة الرسائل الحديثة الظاهرة في ذاكرة WhatsApp بعد بدء التشغيل أو إعادة الاتصال.
   try {
-    const existing = MsgCollection.getModelsArray?.() || MsgCollection.models || [];
-    const recent = existing.slice(-50);
-    // Existing messages are resolved from WhatsApp's local LID cache only.
-    // Do not reinsert the recent history merely because this WebView restarted.
-    recent.forEach(model => { void onMsgModel(model, { resolveOnly: true, allowRemoteLookup: false }); });
-    console.log(`[Whatsi] Read ${recent.length} existing messages from memory.`);
+    const rawModels = MsgCollection.getModelsArray?.() || MsgCollection.models || [];
+    const existing = Array.isArray(rawModels) ? rawModels : Object.values(rawModels);
+    const cutoffSeconds = Math.floor((Date.now() - DATA_RETENTION_MS) / 1000);
+    const inRetention = existing.filter(model => {
+      const timestamp = Number(safeModelValue(model, 't'));
+      return Number.isFinite(timestamp) && timestamp >= cutoffSeconds;
+    });
+    const recoverBatch = async () => {
+      for (let index = 0; index < inRetention.length; index += 20) {
+        await Promise.all(inRetention.slice(index, index + 20)
+          .map(model => onMsgModel(model, { allowRemoteLookup: false, startupBackfill: true })));
+      }
+      console.log(`[Whatsi] Recovered ${inRetention.length} in-memory messages from the last 48 hours.`);
+    }
+    recoverBatch().catch(error => console.error('[Whatsi] Recent-message recovery failed:', error.message));
+    console.log(`[Whatsi] Recovering ${inRetention.length} in-memory messages from the last 48 hours.`);
   } catch (_) {}
 
-  collectionHooked = true;
   console.log('[Whatsi] ✅ WAWebCollections.Msg hooked — all chats monitored in background.');
   return true;
 }
@@ -385,14 +410,25 @@ async function onAudioModel(model, options = {}) {
     const rawId = serializeMessageId(model);
     const tSec  = model.get?.('t') ?? model.t ?? Math.floor(Date.now() / 1000);
     if (!isWithinDataRetention(tSec)) return;
-    const allowTranscription = Number(tSec) >= audioTimestampCutoffSeconds;
+    const allowTranscription = !options.startupBackfill && Number(tSec) >= audioTimestampCutoffSeconds;
     const chatId = model.id?.remote?._serialized
                 ?? model.get?.('id')?.remote?._serialized ?? '';
     if (isNonCustomerChat(chatId)) return;
+    const isOut = model.id?.fromMe === true
+               || model.get?.('id')?.fromMe === true
+               || model.fromMe === true;
+    const sender = isOut ? 'sales' : 'customer';
+    const durationSec = model.get?.('duration') ?? model.duration ?? null;
+    const encFilehash = model.get?.('encFilehash') ?? model.encFilehash ?? '';
+    const mimetype = model.get?.('mimetype') ?? model.mimetype ?? '';
+    const fileLength = model.get?.('size') ?? model.size ?? 0;
+    const messageId = rawId || fallbackMessageId({
+      chatId, timestampSeconds: tSec, sender, kind: 'audio',
+      content: [encFilehash, durationSec, mimetype, fileLength].join('|')
+    });
     const chat = model.get?.('chat')
               ?? window.require?.('WAWebCollections')?.Chat?.get?.(chatId);
-    // fingerprint مضمون حتى لو rawId فارغ
-    const fingerprint = rawId || `${chatId}|${tSec}`;
+    const fingerprint = messageId;
     if (sentAudio.has(fingerprint)) return;
     sentAudio.add(fingerprint);
     if (sentAudio.size > 2000) sentAudio.clear();
@@ -412,15 +448,9 @@ async function onAudioModel(model, options = {}) {
                   ?? (rawPhone ? formatPhoneNumber(rawPhone) : 'عميل');
     } catch (_) {}
 
-    const isOut = model.id?.fromMe === true
-               || model.get?.('id')?.fromMe === true
-               || model.fromMe === true;
-
     const tDate = new Date(tSec * 1000);
 
     // مدة الصوت بالثواني (إذا متوفرة)
-    const durationSec = model.get?.('duration') ?? model.duration ?? null;
-
     // ─── جلب بيانات الميديا من الـ model ──────────────────────────────────────
     // لا نستخدم downloadMedia() (مكسورة منذ يوليو 2026 بسبب LID)
     // بدلاً من ذلك نأخذ mediaKey + directPath ونُرسلهما للـ Main Process
@@ -428,9 +458,8 @@ async function onAudioModel(model, options = {}) {
 
     const mediaKey     = model.get?.('mediaKey')        ?? model.mediaKey        ?? null;
     const directPath   = model.get?.('directPath')       ?? model.directPath      ?? null;
-    const encFilehash  = model.get?.('encFilehash')      ?? model.encFilehash     ?? null;
-    const fileLength   = model.get?.('size')             ?? model.size            ?? 0;
-    const mimetype     = model.get?.('mimetype')         ?? model.mimetype        ?? 'audio/ogg; codecs=opus';
+    const audioEncFilehash = encFilehash || null;
+    const audioMimetype = mimetype || 'audio/ogg; codecs=opus';
 
     // URL بديل في حالة وجوده
     const mediaUrl = model.get?.('clientUrl') ?? model.clientUrl
@@ -444,7 +473,7 @@ async function onAudioModel(model, options = {}) {
     }
 
     ipcRenderer.send('new-audio-captured', {
-      messageId:    rawId || null,
+      messageId,
       chatId,
       accountId:    accountId   || 'account-default',
       accountName:  accountName || 'سيلز',
@@ -455,9 +484,9 @@ async function onAudioModel(model, options = {}) {
       mediaKey:     allowTranscription ? mediaKey : null,
       directPath:   allowTranscription ? directPath : null,
       mediaUrl:     allowTranscription ? mediaUrl : null,
-      encFilehash:  allowTranscription ? encFilehash : null,
+      encFilehash:  allowTranscription ? audioEncFilehash : null,
       fileLength:   allowTranscription ? fileLength : 0,
-      mimetype,
+      mimetype: audioMimetype,
       // buffer فارغ دائماً الآن (التنزيل يتم في Main Process)
       buffer:       null,
       durationSec,
@@ -496,9 +525,7 @@ async function onMsgModel(model, options = {}) {
     if (!isWithinDataRetention(tSec)) return;
     const allowRemoteLookup = Number(tSec) >= audioTimestampCutoffSeconds && options.allowRemoteLookup !== false;
 
-    // dedup
     const rawId = serializeMessageId(model);
-    if (rawId && !dedup(rawId)) return;
 
     const isOut = model.id?.fromMe === true
                || model.get?.('id')?.fromMe === true
@@ -508,11 +535,18 @@ async function onMsgModel(model, options = {}) {
     let customerName = 'عميل';
     let customerPhone = '';
     let chatId = '';
+    let messageId = rawId;
     try {
       chatId = model.id?.remote?._serialized
                   ?? model.get?.('id')?.remote?._serialized
                   ?? '';
       if (isNonCustomerChat(chatId)) return;
+
+      messageId = messageId || fallbackMessageId({
+        chatId, timestampSeconds: tSec, sender: isOut ? 'sales' : 'customer',
+        kind: 'text', content: String(body).trim()
+      });
+      if (!dedup(messageId)) return;
 
       const chat = model.get?.('chat')
                 ?? window.require?.('WAWebCollections')?.Chat?.get?.(chatId);
@@ -534,7 +568,7 @@ async function onMsgModel(model, options = {}) {
     const tDate = new Date(tSec * 1000);
 
     dispatch({
-      messageId: rawId || null,
+      messageId,
       chatId,
       customerName: formatPhoneNumber(customerName),
       customerPhone,
@@ -543,7 +577,9 @@ async function onMsgModel(model, options = {}) {
       timestamp:   tDate.toISOString(),
       displayTime: formatCairoTime(tDate),
     });
-  } catch (_) {}
+  } catch (error) {
+    console.error('[Whatsi] Message capture failed:', error?.message || error);
+  }
 }
 
 // ─── محاولة دورية لـ hook الـ Collection ─────────────────────────────────────
@@ -555,9 +591,8 @@ const hookTimer = setInterval(() => {
                    !document.querySelector('[data-testid="startup-skeleton"]');
   if (!appReady) return; // ننتظر دورة أخرى
 
-  if (tryHookCollection()) clearInterval(hookTimer);
+  tryHookCollection();
 }, 2000);
-setTimeout(() => clearInterval(hookTimer), 300000);
 
 // ─── نبضة حياة ───────────────────────────────────────────────────────────────
 setInterval(() => {

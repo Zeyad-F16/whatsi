@@ -172,6 +172,8 @@ ipcMain.on('new-message-captured', async (event, messageData) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('message-count-updated');
       }
+    } else {
+      console.log(`[Main] Message ignored as duplicate or outside retention [${messageData.accountName}] ${messageData.sender} at ${messageData.timestamp}.`);
     }
   } catch (err) {
     console.error('[Main] Error saving message:', err);

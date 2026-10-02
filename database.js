@@ -214,6 +214,16 @@ async function saveMessage(data) {
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
+    if (String(values[5] || '').startsWith('fallback:')) {
+      const legacy = await client.query(
+        'SELECT id FROM messages WHERE account_id=$1 AND message_id IS NULL AND chat_id IS NOT DISTINCT FROM $2 ' +
+        'AND timestamp=$3::timestamptz AND sender=$4 AND text=$5 LIMIT 1',
+        [values[0], values[4], values[8], values[6], values[7]]);
+      if (legacy.rows[0]) {
+        await client.query('COMMIT');
+        return legacy.rows[0].id;
+      }
+    }
     const result = await client.query(
       "INSERT INTO messages (account_id,account_name,customer_name,customer_phone,chat_id,message_id,sender,text,timestamp,display_time) " +
       "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (account_id,message_id) DO NOTHING RETURNING id",
@@ -264,6 +274,16 @@ async function captureAudio(data) {
       data.customerPhone || null, data.chatId || null, data.messageId || null,
       ['sales', 'customer'].includes(data.sender) ? data.sender : 'customer', data.durationSec || null,
       data.timestamp || new Date().toISOString(), data.displayTime || ''];
+    if (String(values[5] || '').startsWith('fallback:')) {
+      const legacy = await client.query(
+        'SELECT id FROM audio_messages WHERE account_id=$1 AND message_id IS NULL AND chat_id IS NOT DISTINCT FROM $2 ' +
+        'AND timestamp=$3::timestamptz AND sender=$4 AND duration_sec IS NOT DISTINCT FROM $5 LIMIT 1',
+        [values[0], values[4], values[8], values[6], values[7]]);
+      if (legacy.rows[0]) {
+        await client.query('COMMIT');
+        return { id: String(legacy.rows[0].id), inserted: false, recoveredLegacy: true };
+      }
+    }
     let inserted = await client.query(
       "INSERT INTO audio_messages (account_id,account_name,customer_name,customer_phone,chat_id,message_id,sender,duration_sec,timestamp,display_time) " +
       "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (account_id,message_id) DO NOTHING RETURNING id",
