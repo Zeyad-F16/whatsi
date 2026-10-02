@@ -46,6 +46,7 @@ function getGemini() {
 
 // تخزين معلومات الحسابات النشطة وربطها بـ webContents IDs
 const webviewInfoMap = new Map(); // webContentsId -> { accountId, accountName }
+const captureHeartbeatState = new Map(); // accountId -> last preload capture-health snapshot
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -197,8 +198,28 @@ ipcMain.on('customer-phone-resolved', async (_event, data = {}) => {
  * نبضة حياة من الـ preload script.
  */
 ipcMain.on('preload-heartbeat', (event, data) => {
-  // يمكن استخدامه لمراقبة حالة الـ webviews
-  // console.log(`[Main] Heartbeat from ${data.accountId}`);
+  if (!data || !data.accountId) return;
+
+  const key = String(data.accountId);
+  const snapshot = {
+    accountName: data.accountName || webviewInfoMap.get(event.sender.id)?.accountName || key,
+    status: data.captureHookStatus || 'unknown',
+    collectionHooked: Boolean(data.collectionHooked),
+    wsIntercepted: Boolean(data.wsIntercepted),
+    dispatchedMessageCount: Number(data.dispatchedMessageCount) || 0,
+    dispatchedAudioCount: Number(data.dispatchedAudioCount) || 0,
+    lastDispatchedAt: data.lastDispatchedAt || 'never',
+  };
+  const previous = captureHeartbeatState.get(key);
+  if (!previous || Object.keys(snapshot).some(field => snapshot[field] !== previous[field])) {
+    console.log(
+      `[Capture Health] account=${snapshot.accountName} (${key}) status=${snapshot.status}` +
+      ` hooked=${snapshot.collectionHooked} ws=${snapshot.wsIntercepted}` +
+      ` text_sent=${snapshot.dispatchedMessageCount} audio_sent=${snapshot.dispatchedAudioCount}` +
+      ` last_sent=${snapshot.lastDispatchedAt}`
+    );
+    captureHeartbeatState.set(key, snapshot);
+  }
 });
 
 // ===== استقبال الرسائل الصوتية من الـ Webviews =====

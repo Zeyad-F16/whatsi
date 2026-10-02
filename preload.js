@@ -25,6 +25,16 @@ function isWithinDataRetention(timestampSeconds) {
 let accountId   = null;
 let accountName = null;
 let audioTimestampCutoffSeconds = Math.floor(Date.now() / 1000) - 300;
+let captureHookStatus = 'waiting-account-info';
+let dispatchedMessageCount = 0;
+let dispatchedAudioCount = 0;
+let lastDispatchedAt = null;
+
+function setCaptureHookStatus(status) {
+  if (captureHookStatus === status) return;
+  captureHookStatus = status;
+  console.log(`[Whatsi] Capture hook status: ${status}`);
+}
 
 ipcRenderer.on('set-account-info', (_e, info) => {
   accountId   = info.accountId;
@@ -275,6 +285,8 @@ function dispatch(msg) {
     timestamp:    msg.timestamp || new Date().toISOString(),
     displayTime:  msg.displayTime || formatCairoTime(),
   });
+  dispatchedMessageCount++;
+  lastDispatchedAt = new Date().toISOString();
   console.log(`[Whatsi] ✉ ${msg.isOut ? 'OUT→' : 'IN←'} "${msg.text.slice(0, 60)}" | ${msg.customerName}`);
 }
 
@@ -380,15 +392,15 @@ function scheduleRecentMessageRecovery() {
 }
 
 function tryHookCollection() {
-  if (!accountId) return false;
-  if (typeof window.require !== 'function') return false;
+  if (!accountId) { setCaptureHookStatus('waiting-account-info'); return false; }
+  if (typeof window.require !== 'function') { setCaptureHookStatus('node-require-unavailable'); return false; }
 
   // نتأكد أن واتساب ويب اكتمل تحميله قبل استدعاء WAWebCollections
   // علامة الجهوزية: وجود #app مع data-testid="startup-skeleton" مختفٍ
   const app = document.getElementById('app');
-  if (!app) return false;
+  if (!app) { setCaptureHookStatus('waiting-whatsapp-dom'); return false; }
   // لو لا يزال في شاشة التحميل، ننتظر
-  if (app.querySelector('[data-testid="startup-skeleton"]')) return false;
+  if (app.querySelector('[data-testid="startup-skeleton"]')) { setCaptureHookStatus('whatsapp-loading'); return false; }
   // لو لا يزال QR code screen فقط، نكمل (المستخدم لم يسجّل دخول بعد)
 
   let collections;
@@ -396,18 +408,22 @@ function tryHookCollection() {
     collections = window.require('WAWebCollections');
   } catch (e) {
     // المكتبة لم تُحمَّل بعد أو لديها unresolved dependencies — ننتظر
+    setCaptureHookStatus('wa-collections-module-unavailable');
     return false;
   }
 
   // نتأكد أن الـ Msg collection موجود ومكتمل
   const MsgCollection = collections?.Msg || collections?.default?.Msg;
-  if (!MsgCollection || typeof MsgCollection.on !== 'function') return false;
+  if (!MsgCollection || typeof MsgCollection.on !== 'function') { setCaptureHookStatus('message-collection-unavailable'); return false; }
 
   // تأكد إضافي: الـ collection يحتوي على models (واتساب محمّل بالكامل)
   const models = MsgCollection.getModelsArray?.() || MsgCollection.models;
-  if (!models) return false; // لم يكتمل التهيئة بعد
+  if (!models) { setCaptureHookStatus('message-models-not-ready'); return false; }
 
-  if (collectionHooked && hookedMsgCollection === MsgCollection) return true;
+  if (collectionHooked && hookedMsgCollection === MsgCollection) {
+    setCaptureHookStatus('hooked');
+    return true;
+  }
   if (hookedMsgCollection) {
     try {
       if (msgCollectionAddHandler) hookedMsgCollection.off?.('add', msgCollectionAddHandler);
@@ -424,6 +440,7 @@ function tryHookCollection() {
   MsgCollection.on('sync', msgCollectionSyncHandler);
   hookedMsgCollection = MsgCollection;
   collectionHooked = true;
+  setCaptureHookStatus('hooked');
 
   // استعد من الحالة الحالية، وأعد الفحص بعد كل مزامنة أو إعادة بناء للمجموعة.
   void recoverRecentMessages(MsgCollection);
@@ -527,6 +544,8 @@ async function onAudioModel(model, options = {}) {
       timestamp:    tDate.toISOString(),
       displayTime:  formatCairoTime(tDate),
     });
+    dispatchedAudioCount++;
+    lastDispatchedAt = new Date().toISOString();
 
     console.log(`[Whatsi] 🎤 Audio ${isOut ? 'OUT→' : 'IN←'} | ${customerName} | ${durationSec ? durationSec + 'ث' : '?ث'}`);
 
@@ -620,11 +639,7 @@ async function onMsgModel(model, options = {}) {
 // نبدأ بمحاولات بطيئة (3 ثواني) حتى يكتمل تحميل واتساب
 // ثم نتسارع (1.5 ثانية) بعد ظهور الـ app
 const hookTimer = setInterval(() => {
-  // لو واتساب لم يُحمَّل بعد نبطّئ المحاولة
-  const appReady = !!document.getElementById('app') &&
-                   !document.querySelector('[data-testid="startup-skeleton"]');
-  if (!appReady) return; // ننتظر دورة أخرى
-
+  // tryHookCollection يحدد لنا بدقة ما الذي لم يجهز بعد، كما يحاول الربط عند جاهزية واتساب.
   tryHookCollection();
 }, 2000);
 
@@ -633,7 +648,12 @@ setInterval(() => {
   if (accountId) {
     ipcRenderer.send('preload-heartbeat', {
       accountId,
+      accountName,
       collectionHooked,
+      captureHookStatus,
+      dispatchedMessageCount,
+      dispatchedAudioCount,
+      lastDispatchedAt,
       wsIntercepted: !!window.__whatsiWsIntercepted,
       timestamp: new Date().toISOString(),
     });
