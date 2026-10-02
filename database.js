@@ -46,7 +46,7 @@ async function initialize() {
 }
 
 const ALL_ACCOUNTS_KEY = '__all__';
-const REPORT_PROMPT_VERSION = 'daily-report-v11-unique-activity-stats';
+const REPORT_PROMPT_VERSION = 'daily-report-v12-evidence-based-objections';
 
 function normalizeReportPeriod(period) {
   return period === 'last48h' ? 'last48h' : 'today';

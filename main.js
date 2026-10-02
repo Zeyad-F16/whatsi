@@ -50,7 +50,7 @@ const captureHeartbeatState = new Map(); // accountId -> last preload capture-he
 
 function removeDuplicateActivitySection(report) {
   if (typeof report !== 'string') return report;
-  return report
+  let cleaned = report
     .replace(/^#{1,6}\s*(?:ثانياً|ثانيًا)\s*[:：]\s*مؤشرات النشاط[^\r\n]*\r?\n[\s\S]*?(?=^#{1,6}\s*(?:ثالثاً|ثالثًا|رابعاً|رابعًا|خامساً|خامسًا)\s*[:：]|$(?![\s\S]))/gm, '')
     .replace(/^(#{1,6}\s*)(?:ثالثاً|ثالثًا)(\s*[:：]\s*مراجعة تفصيلية)/gm, '$1ثانياً$2')
     .replace(/^(#{1,6}\s*)(?:رابعاً|رابعًا)(\s*[:：]\s*إحصائيات الأداء)[^\r\n]*/gm, '$1ثالثاً: أنماط الاعتراضات وفرص التحسين')
@@ -59,6 +59,35 @@ function removeDuplicateActivitySection(report) {
     .replace(/^\s*[-*•]\s*(?:الفريق|عدد المحادثات|إجمالي المحادثات|عدد الرسائل|إجمالي الرسائل|الرسائل الصادرة|الرسائل الواردة|ليدات جديدة|ليدات|فولو أب)\s*[:：].*(?:\r?\n|$)/gm, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+
+  // Older cached reports sometimes contain a heading followed by a generic,
+  // unfinished sentence. Remove that whole section instead of showing noise.
+  const heading = /^#{1,6}\s*[^\r\n]*أنماط\s+الاعتراضات[^\r\n]*\r?\n?/m.exec(cleaned);
+  if (heading) {
+    const start = heading.index;
+    const bodyStart = start + heading[0].length;
+    const nextHeading = /^#{1,6}\s+[^\r\n]+/gm;
+    nextHeading.lastIndex = bodyStart;
+    const next = nextHeading.exec(cleaned);
+    const end = next ? next.index : cleaned.length;
+    const body = cleaned.slice(bodyStart, end)
+      .replace(/^\s*[-*•]?\s*الاعتراضات\s*[:：]\s*(?:تركزت|تركّزت)\s*حول\s*[.،؛\-—]*\s*$/gim, '')
+      .replace(/^\s*[-*•]?\s*(?:لا توجد اعتراضات(?: واضحة| محددة)?|لم تظهر اعتراضات(?: واضحة| محددة)?)[.،؛\s]*$/gim, '')
+      .replace(/^\s*[-*_—–]{3,}\s*$/gm, '')
+      .trim();
+    if (!body) cleaned = `${cleaned.slice(0, start)}${cleaned.slice(end)}`.replace(/\n{3,}/g, '\n\n').trim();
+  }
+  return cleaned;
+}
+
+function hasUsefulReportAppendix(appendix) {
+  if (typeof appendix !== 'string') return false;
+  const meaningful = appendix
+    .replace(/^#{1,6}\s*[^\r\n]*$/gm, '')
+    .replace(/^\s*[-*_—–]{3,}\s*$/gm, '')
+    .replace(/^\s*[-*•]?\s*(?:الرسائل الجديدة لا تضيف ملاحظة تقييمية|لا توجد ملاحظة تقييمية|لا يوجد تغيير سلوكي(?: ذي دلالة)?)[.،؛\s]*$/gim, '')
+    .trim();
+  return meaningful.length > 0;
 }
 
 function createWindow() {
@@ -617,8 +646,11 @@ ipcMain.handle('generate-daily-report', async (event, { accountId, period }) => 
       { ...reportStats, deltaChats: deltaText.stats.chats || newAudioRows.length },
       reportDate, audioSummary, cached.scores || [], accountId || null, period);
     if (!delta.success) return { success: false, error: delta.error, stats: currentStats };
+    const deltaAppendix = hasUsefulReportAppendix(delta.appendix)
+      ? `\n\n---\n\n### ملحق تحديث — رسائل جديدة منذ آخر استخراج\n\n${delta.appendix.trim()}`
+      : '';
     report = { ...cached, success: true, stats: reportStats,
-      report: `${cached.report}\n\n---\n\n### ملحق تحديث — رسائل جديدة منذ آخر استخراج\n\n${delta.appendix}`,
+      report: `${cached.report}${deltaAppendix}`,
       scores: delta.scores.length ? delta.scores : cached.scores, model: delta.model,
       incrementalUpdate: true, analyzedNewMessages: newMessages.length, analyzedNewAudio: newAudioRows.length };
   } else {
