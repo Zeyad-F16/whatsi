@@ -525,20 +525,29 @@ function buildAudioSummary(audioRows) {
 
 function getAudioClassification(transcript = '', toneValue = '') {
   const tone = String(toneValue || '');
-  const stored = tone.match(/تصنيف المحتوى\s*[:：]\s*(مسيء|غير مسيء|غير محسوم)/i);
-  if (stored) {
-    const label = stored[1] === 'مسيء' ? 'مسيء' : stored[1] === 'غير مسيء' ? 'غير مسيء' : 'غير محسوم';
-    return { label, abusive: label === 'مسيء', tone: tone.replace(/(?:\r?\n)?تصنيف المحتوى\s*[:：]\s*(?:مسيء|غير مسيء|غير محسوم)/ig, '').trim(), reason: '' };
+  const toneWithoutClassification = tone.replace(/(?:\r?\n)?تصنيف المحتوى\s*[:：]\s*(?:مسيء|غير مسيء|غير محسوم)/ig, '').trim();
+  const transcriptText = String(transcript || '');
+
+  // Check the actual transcript before trusting a stored model label: older
+  // transcriptions may have been saved as "unclassified" or mislabeled.
+  const targetedViolencePattern = /(?:(?:أنا\s+)?(?:عايز|عاوزه|عاوز|أريد|اريد|نفسي)\s+(?:أن\s+)?(?:أموت|اموت|أقتل|اقتل|هقتل|سأقتل|أذبح|اذبح)\s+(?:ال)?(?:طلبة|طلاب|ناس|شخص|العميل|السيلز|الموظف|المدرس|المدرسين|الناس|فلان)|(?:هقتل|هأقتل|سأقتل|سوف\s+أقتل|أذبح|اذبح)\s+(?:ال)?(?:طلبة|طلاب|ناس|شخص|العميل|السيلز|الموظف|المدرس|المدرسين|الناس|فلان))/iu;
+  if (targetedViolencePattern.test(transcriptText)) {
+    return { label: 'محتوى عنيف موجّه — يحتاج مراجعة', abusive: true, tone: toneWithoutClassification, reason: 'يتضمن التفريغ عبارة مباشرة عن قتل/إيذاء أشخاص؛ هذا تنبيه آلي لمراجعة التسجيل والسياق، وليس حكمًا على جدية التهديد.' };
   }
 
-  const transcriptText = String(transcript || '');
   // Legacy recordings predate the explicit classification. Only flag clear,
   // directed insults or profanity; an angry tone by itself is not abuse.
   const insultPattern = /(?:يا\s+(?:غبي|حمار|كلب|حيوان|حقير|وسخ|قذر|زبالة|متخلف|أحمق|كذاب)|(?:ابن|بنت)\s+الكلب|يلعن(?:ك|كم)?|شرموط|كس(?:م|ختك|اختك)|fuck\s+you|you\s+are\s+(?:an?\s+)?(?:idiot|stupid|bitch|bastard))/iu;
   if (insultPattern.test(transcriptText)) {
-    return { label: 'مسيء — يحتاج مراجعة', abusive: true, tone: tone.trim(), reason: 'رصد النظام لفظًا مهينًا واضحًا في التفريغ؛ راجع التسجيل والسياق.' };
+    return { label: 'مسيء — يحتاج مراجعة', abusive: true, tone: toneWithoutClassification, reason: 'رصد النظام لفظًا مهينًا واضحًا في التفريغ؛ راجع التسجيل والسياق.' };
   }
-  return { label: 'غير مصنّف', abusive: false, tone: tone.trim(), reason: 'هذا التسجيل لم يُصنّف وقت تفريغه.' };
+
+  const stored = tone.match(/تصنيف المحتوى\s*[:：]\s*(مسيء|غير مسيء|غير محسوم)/i);
+  if (stored) {
+    const label = stored[1] === 'مسيء' ? 'مسيء' : stored[1] === 'غير مسيء' ? 'غير مسيء' : 'غير محسوم';
+    return { label, abusive: label === 'مسيء', tone: toneWithoutClassification, reason: '' };
+  }
+  return { label: 'غير مصنّف', abusive: false, tone: toneWithoutClassification, reason: 'هذا التسجيل لم يُصنّف وقت تفريغه.' };
 }
 
 // Keep a verbatim, database-backed copy for the report UI. Gemini may discuss
