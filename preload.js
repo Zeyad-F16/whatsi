@@ -34,6 +34,22 @@ function setCaptureHookStatus(status) {
   if (captureHookStatus === status) return;
   captureHookStatus = status;
   console.log(`[Whatsi] Capture hook status: ${status}`);
+  sendCaptureHeartbeat();
+}
+
+function sendCaptureHeartbeat() {
+  if (!accountId) return;
+  ipcRenderer.send('preload-heartbeat', {
+    accountId,
+    accountName,
+    collectionHooked,
+    captureHookStatus,
+    dispatchedMessageCount,
+    dispatchedAudioCount,
+    lastDispatchedAt,
+    wsIntercepted: !!window.__whatsiWsIntercepted,
+    timestamp: new Date().toISOString(),
+  });
 }
 
 ipcRenderer.on('set-account-info', (_e, info) => {
@@ -41,6 +57,7 @@ ipcRenderer.on('set-account-info', (_e, info) => {
   accountName = info.accountName;
   if (Number.isFinite(info.audioTimestampCutoff)) audioTimestampCutoffSeconds = info.audioTimestampCutoff;
   console.log(`[Whatsi] Account set: ${accountName} (${accountId})`);
+  sendCaptureHeartbeat();
 });
 
 window.__whatsiSetAccount = (id, name, cutoffSeconds) => {
@@ -48,6 +65,7 @@ window.__whatsiSetAccount = (id, name, cutoffSeconds) => {
   accountName = name;
   if (Number.isFinite(cutoffSeconds)) audioTimestampCutoffSeconds = cutoffSeconds;
   console.log(`[Whatsi] Account set (js): ${accountName}`);
+  sendCaptureHeartbeat();
 };
 
 // ─── تنسيق رقم الهاتف بفورمات دولي ─────────────────────────────────────────
@@ -645,19 +663,7 @@ const hookTimer = setInterval(() => {
 
 // ─── نبضة حياة ───────────────────────────────────────────────────────────────
 setInterval(() => {
-  if (accountId) {
-    ipcRenderer.send('preload-heartbeat', {
-      accountId,
-      accountName,
-      collectionHooked,
-      captureHookStatus,
-      dispatchedMessageCount,
-      dispatchedAudioCount,
-      lastDispatchedAt,
-      wsIntercepted: !!window.__whatsiWsIntercepted,
-      timestamp: new Date().toISOString(),
-    });
-  }
+  sendCaptureHeartbeat();
 }, 30000);
 
 console.log('[Whatsi Preload] Loaded ✓');

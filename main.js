@@ -441,6 +441,9 @@ ipcMain.on('register-webview', (event, { webContentsId, accountId, accountName }
     if (wc && !wc.isDestroyed()) {
       wc.send('set-account-info', { accountId, accountName, audioTimestampCutoff });
       console.log(`[Main] Account info sent to webview: ${accountName} (${accountId})`);
+      wc.executeJavaScript('typeof window.__whatsiSetAccount')
+        .then(type => console.log(`[Capture Health] preload-api account=${accountName} (${accountId}) type=${type}`))
+        .catch(err => console.warn(`[Capture Health] preload-api check failed for ${accountName} (${accountId}): ${err.message}`));
     }
   } catch (err) {
     console.error('[Main] Error sending account info to webview:', err);
