@@ -335,6 +335,49 @@ function dispatch(msg) {
 let collectionHooked = false;
 let hookedMsgCollection = null;
 let msgCollectionAddHandler = null;
+let msgCollectionResetHandler = null;
+let msgCollectionSyncHandler = null;
+let messageRecoveryTimer = null;
+let messageRecoveryRunning = false;
+let messageRecoveryRequested = false;
+
+async function recoverRecentMessages(collection = hookedMsgCollection) {
+  if (!collection || messageRecoveryRunning) {
+    if (collection) messageRecoveryRequested = true;
+    return;
+  }
+  messageRecoveryRunning = true;
+  try {
+    do {
+      messageRecoveryRequested = false;
+      const rawModels = collection.getModelsArray?.() || collection.models || [];
+      const models = Array.isArray(rawModels) ? rawModels : Object.values(rawModels);
+      const cutoffSeconds = Math.floor((Date.now() - DATA_RETENTION_MS) / 1000);
+      const recent = models.filter(model => {
+        const timestamp = Number(safeModelValue(model, 't'));
+        return Number.isFinite(timestamp) && timestamp >= cutoffSeconds;
+      });
+      for (let index = 0; index < recent.length; index += 20) {
+        await Promise.all(recent.slice(index, index + 20)
+          .map(model => onMsgModel(model, { allowRemoteLookup: false, startupBackfill: true })));
+      }
+      console.log(`[Whatsi] Recovered ${recent.length} in-memory messages from the last 48 hours.`);
+    } while (messageRecoveryRequested && collection === hookedMsgCollection);
+  } catch (error) {
+    console.error('[Whatsi] Recent-message recovery failed:', error?.message || error);
+  } finally {
+    messageRecoveryRunning = false;
+    if (messageRecoveryRequested && hookedMsgCollection) scheduleRecentMessageRecovery();
+  }
+}
+
+function scheduleRecentMessageRecovery() {
+  if (messageRecoveryTimer) clearTimeout(messageRecoveryTimer);
+  messageRecoveryTimer = setTimeout(() => {
+    messageRecoveryTimer = null;
+    void recoverRecentMessages();
+  }, 1000);
+}
 
 function tryHookCollection() {
   if (!accountId) return false;
@@ -365,34 +408,25 @@ function tryHookCollection() {
   if (!models) return false; // لم يكتمل التهيئة بعد
 
   if (collectionHooked && hookedMsgCollection === MsgCollection) return true;
-  if (hookedMsgCollection && msgCollectionAddHandler) {
-    try { hookedMsgCollection.off?.('add', msgCollectionAddHandler); } catch (_) {}
+  if (hookedMsgCollection) {
+    try {
+      if (msgCollectionAddHandler) hookedMsgCollection.off?.('add', msgCollectionAddHandler);
+      if (msgCollectionResetHandler) hookedMsgCollection.off?.('reset', msgCollectionResetHandler);
+      if (msgCollectionSyncHandler) hookedMsgCollection.off?.('sync', msgCollectionSyncHandler);
+    } catch (_) {}
   }
 
   msgCollectionAddHandler = model => { void onMsgModel(model); };
+  msgCollectionResetHandler = scheduleRecentMessageRecovery;
+  msgCollectionSyncHandler = scheduleRecentMessageRecovery;
   MsgCollection.on('add', msgCollectionAddHandler);
+  MsgCollection.on('reset', msgCollectionResetHandler);
+  MsgCollection.on('sync', msgCollectionSyncHandler);
   hookedMsgCollection = MsgCollection;
   collectionHooked = true;
 
-  // استعادة الرسائل الحديثة الظاهرة في ذاكرة WhatsApp بعد بدء التشغيل أو إعادة الاتصال.
-  try {
-    const rawModels = MsgCollection.getModelsArray?.() || MsgCollection.models || [];
-    const existing = Array.isArray(rawModels) ? rawModels : Object.values(rawModels);
-    const cutoffSeconds = Math.floor((Date.now() - DATA_RETENTION_MS) / 1000);
-    const inRetention = existing.filter(model => {
-      const timestamp = Number(safeModelValue(model, 't'));
-      return Number.isFinite(timestamp) && timestamp >= cutoffSeconds;
-    });
-    const recoverBatch = async () => {
-      for (let index = 0; index < inRetention.length; index += 20) {
-        await Promise.all(inRetention.slice(index, index + 20)
-          .map(model => onMsgModel(model, { allowRemoteLookup: false, startupBackfill: true })));
-      }
-      console.log(`[Whatsi] Recovered ${inRetention.length} in-memory messages from the last 48 hours.`);
-    }
-    recoverBatch().catch(error => console.error('[Whatsi] Recent-message recovery failed:', error.message));
-    console.log(`[Whatsi] Recovering ${inRetention.length} in-memory messages from the last 48 hours.`);
-  } catch (_) {}
+  // استعد من الحالة الحالية، وأعد الفحص بعد كل مزامنة أو إعادة بناء للمجموعة.
+  void recoverRecentMessages(MsgCollection);
 
   console.log('[Whatsi] ✅ WAWebCollections.Msg hooked — all chats monitored in background.');
   return true;
