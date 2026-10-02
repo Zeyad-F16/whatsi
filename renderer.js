@@ -455,21 +455,41 @@ function renderAudioEvidence(items) {
   section.className = 'report-audio-evidence';
   section.dir = 'rtl';
   const title = document.createElement('h2');
-  title.textContent = 'التفريغ النصي ونبرة الرسائل الصوتية';
+  title.textContent = 'التقرير الشامل للتسجيلات الصوتية';
   const sourceNote = document.createElement('p');
   sourceNote.className = 'audio-evidence-source';
-  sourceNote.textContent = 'النص والنبرة أدناه معروضان دون إعادة صياغة.';
-  section.append(title, sourceNote);
+  sourceNote.textContent = 'يعرض هذا القسم كل تسجيل محفوظ في الفترة، مع التفريغ والنبرة وتصنيف الإساءة. التمييز يعتمد على التفريغ الصوتي، ويظل السياق مهمًا للمراجعة.';
+  const abusiveCount = items.filter(item => item.abusive).length;
+  const transcribedCount = items.filter(item => item.transcript).length;
+  const salesCount = items.filter(item => item.sender === 'sales').length;
+  const customerCount = items.length - salesCount;
+  const untranscribedCount = items.length - transcribedCount;
+  const unclassifiedCount = items.filter(item => item.abuseLabel === 'غير مصنّف' || item.abuseLabel === 'غير محسوم').length;
+  const summary = document.createElement('div');
+  summary.className = 'audio-evidence-summary';
+  summary.innerHTML = `<span>إجمالي التسجيلات <b>${items.length}</b></span><span>مفرّغ منها <b>${transcribedCount}</b></span><span>بلا تفريغ <b>${untranscribedCount}</b></span><span>تسجيلات السيلز <b>${salesCount}</b></span><span>تسجيلات العملاء <b>${customerCount}</b></span><span class="audio-summary-abusive">مسيئة وتحتاج مراجعة <b>${abusiveCount}</b></span><span>غير محسومة التصنيف <b>${unclassifiedCount}</b></span>`;
+  section.append(title, sourceNote, summary);
 
-  for (const item of items) {
+  for (const item of [...items].sort((a, b) => Number(b.abusive) - Number(a.abusive))) {
     const card = document.createElement('article');
-    card.className = 'audio-evidence-card';
+    card.className = `audio-evidence-card${item.abusive ? ' audio-evidence-card--abusive' : ''}`;
     const heading = document.createElement('h3');
     const sender = item.sender === 'sales'
       ? `السيلز: ${item.accountName || 'غير معروف'}`
       : `العميل: ${item.customerName || 'غير معروف'}`;
     heading.textContent = `رسالة صوتية — ${item.time || item.timestamp || 'وقت غير متاح'} — ${sender}`;
     card.appendChild(heading);
+
+    const classification = document.createElement('p');
+    classification.className = `audio-evidence-classification${item.abusive ? ' audio-evidence-classification--abusive' : ''}`;
+    classification.textContent = `تصنيف المحتوى: ${item.abuseLabel || 'غير مصنّف'}`;
+    card.appendChild(classification);
+    if (item.abuseReason) {
+      const reason = document.createElement('p');
+      reason.className = 'audio-evidence-reason';
+      reason.textContent = item.abuseReason;
+      card.appendChild(reason);
+    }
 
     const identifiers = [];
     if (item.customerPhone) identifiers.push(`رقم واتساب: ${item.customerPhone}`);
@@ -504,9 +524,9 @@ function formatAudioEvidenceText(items = []) {
     const phone = item.customerPhone ? `رقم واتساب: ${item.customerPhone}` : `معرّف المحادثة: ${item.chatId || 'غير متاح'}`;
     const transcript = item.transcript === '' ? 'لا يوجد تفريغ محفوظ.' : item.transcript;
     const tone = item.tone === '' ? 'غير متاحة' : item.tone;
-    return `الوقت: ${item.time || item.timestamp || 'غير متاح'}\n${sender} — ${phone}\nالتفريغ الصوتي:\n${transcript}\nنبرة الصوت:\n${tone}`;
+    return `الوقت: ${item.time || item.timestamp || 'غير متاح'}\n${sender} — ${phone}\nتصنيف المحتوى: ${item.abuseLabel || 'غير مصنّف'}\nالتفريغ الصوتي:\n${transcript}\nنبرة الصوت:\n${tone}${item.abuseReason ? `\nملاحظة التصنيف: ${item.abuseReason}` : ''}`;
   });
-  return `\n\nالتفريغ النصي ونبرة الرسائل الصوتية\n\n${entries.join('\n\n')}`;
+  return `\n\nالتقرير الشامل للتسجيلات الصوتية\nإجمالي التسجيلات: ${items.length}\nالمفرّغ منها: ${items.filter(item => item.transcript).length}\nبلا تفريغ: ${items.filter(item => !item.transcript).length}\nالتسجيلات المسيئة التي تحتاج مراجعة: ${items.filter(item => item.abusive).length}\nغير محسومة التصنيف: ${items.filter(item => item.abuseLabel === 'غير مصنّف' || item.abuseLabel === 'غير محسوم').length}\n\n${entries.join('\n\n')}`;
 }
 
 function addPhoneCopyControls(container) {

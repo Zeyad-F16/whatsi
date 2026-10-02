@@ -1352,8 +1352,18 @@ webview.active {
 .report-audio-evidence { margin:22px 0 8px; padding:18px; border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-card); }
 .report-audio-evidence > h2 { margin:0; color:var(--text-primary); font-size:1.05rem; }
 .audio-evidence-source { margin:7px 0 14px; color:var(--text-dim); font-size:.8rem; }
+.audio-evidence-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; margin:12px 0 16px; }
+.audio-evidence-summary span { display:flex; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid var(--border-color); border-radius:9px; background:var(--bg-medium); color:var(--text-secondary); font-size:.8rem; }
+.audio-evidence-summary b { color:var(--accent-teal); }
+.audio-evidence-summary .audio-summary-abusive { color:#ffc0c0; border-color:rgba(239,68,68,.42); background:rgba(127,29,29,.2); }
+.audio-evidence-summary .audio-summary-abusive b { color:#ff7777; }
 .audio-evidence-card { margin-top:10px; padding:13px 15px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-medium); }
 .audio-evidence-card h3 { margin:0; color:var(--accent-teal); font-size:.88rem; }
+.audio-evidence-card--abusive { border:2px solid rgba(239,68,68,.78); background:linear-gradient(110deg,rgba(127,29,29,.26),var(--bg-medium) 70%); box-shadow:0 0 0 1px rgba(239,68,68,.12); }
+.audio-evidence-card--abusive h3 { color:#ff8585; }
+.audio-evidence-classification { display:inline-flex; margin:8px 0 0; padding:4px 9px; border:1px solid rgba(148,163,184,.25); border-radius:999px; color:var(--text-secondary); background:rgba(148,163,184,.08); font-size:.76rem; }
+.audio-evidence-classification--abusive { color:#ffd0d0; border-color:rgba(239,68,68,.62); background:rgba(220,53,69,.2); font-weight:700; }
+.audio-evidence-reason { margin:7px 0 10px; color:#ffaaaa; font-size:.78rem; line-height:1.65; }
 .audio-evidence-meta { margin:6px 0 10px; color:var(--text-dim); font-size:.78rem; }
 .audio-evidence-card > strong { color:var(--text-secondary); font-size:.82rem; }
 .audio-transcript-raw { margin:7px 0 10px; padding:11px 13px; border-radius:8px; background:rgba(0,0,0,.18); color:var(--text-primary); white-space:pre-wrap; overflow-wrap:anywhere; text-align:start; font:inherit; line-height:1.75; }

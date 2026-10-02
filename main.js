@@ -511,8 +511,9 @@ function buildAudioSummary(audioRows) {
     const duration = audio.duration_sec ? ` مدة ${audio.duration_sec} ثانية` : '';
     const time = audio.display_time || formatCairoTime(new Date(audio.timestamp));
     if (audio.transcript) {
-      const tone = audio.tone_analysis ? ` | نبرة الصوت: ${audio.tone_analysis}` : '';
-      return `[${time}] 🎤 رسالة صوتية ${index + 1} — ${sender} | ${student}${duration}\nالتفريغ: "${audio.transcript}"${tone}`;
+      const evidence = getAudioClassification(audio.transcript, audio.tone_analysis);
+      const tone = evidence.tone ? ` | نبرة الصوت: ${evidence.tone}` : '';
+      return `[${time}] 🎤 رسالة صوتية ${index + 1} — ${sender} | ${student}${duration}\nتصنيف المحتوى: ${evidence.label}${evidence.reason ? ` (${evidence.reason})` : ''}\nالتفريغ: "${audio.transcript}"${tone}`;
     }
     if (new Date(audio.timestamp).getTime() < audioTimestampCutoff * 1000) {
       return `[${time}] 🎤 رسالة صوتية ${index + 1} — ${sender} | ${student}${duration}\nℹ️ تم تجاوز تفريغها لأنها أقدم من حد بدء التطبيق لتجنب إعادة إرسالها إلى Gemini`;
@@ -522,10 +523,30 @@ function buildAudioSummary(audioRows) {
   return `═══ الرسائل الصوتية المسجلة: ${audioRows.length} رسالة ═══\n${lines.join('\n\n')}`;
 }
 
+function getAudioClassification(transcript = '', toneValue = '') {
+  const tone = String(toneValue || '');
+  const stored = tone.match(/تصنيف المحتوى\s*[:：]\s*(مسيء|غير مسيء|غير محسوم)/i);
+  if (stored) {
+    const label = stored[1] === 'مسيء' ? 'مسيء' : stored[1] === 'غير مسيء' ? 'غير مسيء' : 'غير محسوم';
+    return { label, abusive: label === 'مسيء', tone: tone.replace(/(?:\r?\n)?تصنيف المحتوى\s*[:：]\s*(?:مسيء|غير مسيء|غير محسوم)/ig, '').trim(), reason: '' };
+  }
+
+  const transcriptText = String(transcript || '');
+  // Legacy recordings predate the explicit classification. Only flag clear,
+  // directed insults or profanity; an angry tone by itself is not abuse.
+  const insultPattern = /(?:يا\s+(?:غبي|حمار|كلب|حيوان|حقير|وسخ|قذر|زبالة|متخلف|أحمق|كذاب)|(?:ابن|بنت)\s+الكلب|يلعن(?:ك|كم)?|شرموط|كس(?:م|ختك|اختك)|fuck\s+you|you\s+are\s+(?:an?\s+)?(?:idiot|stupid|bitch|bastard))/iu;
+  if (insultPattern.test(transcriptText)) {
+    return { label: 'مسيء — يحتاج مراجعة', abusive: true, tone: tone.trim(), reason: 'رصد النظام لفظًا مهينًا واضحًا في التفريغ؛ راجع التسجيل والسياق.' };
+  }
+  return { label: 'غير مصنّف', abusive: false, tone: tone.trim(), reason: 'هذا التسجيل لم يُصنّف وقت تفريغه.' };
+}
+
 // Keep a verbatim, database-backed copy for the report UI. Gemini may discuss
 // the audio, but must never be the source of the transcript/tone shown here.
 function buildAudioEvidence(audioRows) {
-  return audioRows.map(audio => ({
+  return audioRows.map(audio => {
+    const classification = getAudioClassification(audio.transcript, audio.tone_analysis);
+    return ({
     id: String(audio.id),
     time: audio.display_time || audio.timestamp || '',
     timestamp: audio.timestamp || '',
@@ -536,8 +557,12 @@ function buildAudioEvidence(audioRows) {
     chatId: audio.chat_id || '',
     durationSec: audio.duration_sec,
     transcript: audio.transcript == null ? '' : String(audio.transcript),
-    tone: audio.tone_analysis == null ? '' : String(audio.tone_analysis)
-  }));
+    tone: classification.tone,
+    abuseLabel: classification.label,
+    abusive: classification.abusive,
+    abuseReason: classification.reason
+    });
+  });
 }
 
 function buildCurrentMessageTimes(messages, audioRows) {

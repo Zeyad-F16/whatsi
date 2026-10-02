@@ -46,7 +46,7 @@ async function initialize() {
 }
 
 const ALL_ACCOUNTS_KEY = '__all__';
-const REPORT_PROMPT_VERSION = 'daily-report-v12-evidence-based-objections';
+const REPORT_PROMPT_VERSION = 'daily-report-v13-audio-evidence-review';
 
 function normalizeReportPeriod(period) {
   return period === 'last48h' ? 'last48h' : 'today';
