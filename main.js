@@ -12,7 +12,7 @@ const { app, BrowserWindow, ipcMain, session, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Queue, Worker } = require('bullmq');
-const { formatCairoTime, formatCairoDateTime } = require('./timezone');
+const { formatCairoTime, formatCairoDateTime, getCairoDateRange } = require('./timezone');
 
 // تحميل متغيرات البيئة من .env
 require('dotenv').config({ path: path.join(__dirname, '.env') });
@@ -612,6 +612,126 @@ function buildCurrentMessageTimes(messages, audioRows) {
   }));
 }
 
+function buildResponseMetrics(messages, audioRows, { periodStart, periodEnd, now = Date.now() }) {
+  const events = [
+    ...messages.map(row => ({ ...row, source: 'text' })),
+    ...audioRows.map(row => ({ ...row, source: 'audio' }))
+  ].map(row => ({ ...row, milliseconds: new Date(row.timestamp).getTime() }))
+    .filter(row => Number.isFinite(row.milliseconds) && ['sales', 'customer'].includes(row.sender));
+  const chatKey = row => {
+    const chatId = String(row.chat_id || '').trim().replace(/@(c\.us|s\.whatsapp\.net|lid)$/i, '');
+    return `${row.account_id || 'unknown'}\u0000${chatId || row.customer_phone || row.customer_name || 'unknown'}`;
+  };
+  const conversations = new Map();
+  for (const event of events) {
+    const key = chatKey(event);
+    if (!conversations.has(key)) conversations.set(key, { accountId: event.account_id || 'unknown', accountName: event.account_name || 'غير معروف', events: [] });
+    conversations.get(key).events.push(event);
+  }
+
+  const stats = new Map();
+  const ensure = (accountId, accountName) => {
+    if (!stats.has(accountId)) stats.set(accountId, { accountId, accountName, firstReplies: [], repeatReplies: [], pending: [] });
+    return stats.get(accountId);
+  };
+  const isInPeriod = timestamp => timestamp >= periodStart && timestamp < periodEnd;
+  for (const conversation of conversations.values()) {
+    const account = ensure(conversation.accountId, conversation.accountName);
+    conversation.events.sort((a, b) => a.milliseconds - b.milliseconds);
+    let waitingSince = null;
+    let pendingStartIsLowerBound = false;
+    let answeredTurnsInPeriod = 0;
+    for (const event of conversation.events) {
+      if (event.sender === 'customer') {
+        if (waitingSince === null) {
+          waitingSince = event.milliseconds;
+          pendingStartIsLowerBound = conversation.events[0] === event;
+        }
+      } else if (waitingSince !== null) {
+        const seconds = Math.max(0, Math.round((event.milliseconds - waitingSince) / 1000));
+        if (isInPeriod(waitingSince) && event.milliseconds <= periodEnd) {
+          const entry = { seconds, accountId: conversation.accountId };
+          (answeredTurnsInPeriod++ === 0 ? account.firstReplies : account.repeatReplies).push(entry);
+        }
+        waitingSince = null;
+        pendingStartIsLowerBound = false;
+      }
+    }
+    if (waitingSince !== null && conversation.events.at(-1)?.sender === 'customer') {
+      const waitSeconds = Math.max(0, Math.floor((now - waitingSince) / 1000));
+      account.pending.push({ seconds: waitSeconds, lowerBound: pendingStartIsLowerBound });
+    }
+  }
+
+  const summarize = values => {
+    const seconds = values.map(item => item.seconds).filter(value => Number.isFinite(value) && value >= 0).sort((a, b) => a - b);
+    const median = seconds.length === 0 ? null : seconds.length % 2
+      ? seconds[Math.floor(seconds.length / 2)]
+      : Math.round((seconds[seconds.length / 2 - 1] + seconds[seconds.length / 2]) / 2);
+    return { count: seconds.length, averageSeconds: seconds.length ? Math.round(seconds.reduce((sum, value) => sum + value, 0) / seconds.length) : null,
+      medianSeconds: median, maximumSeconds: seconds.length ? seconds.at(-1) : null };
+  };
+  const serialize = account => {
+    const oldest = account.pending.reduce((result, item) => !result || item.seconds > result.seconds ? item : result, null);
+    return { accountId: account.accountId, accountName: account.accountName,
+      firstReply: summarize(account.firstReplies), repeatedReplies: summarize(account.repeatReplies),
+      pendingSalesReplyCount: account.pending.length,
+      oldestPendingSeconds: oldest?.seconds ?? null, oldestPendingIsLowerBound: Boolean(oldest?.lowerBound) };
+  };
+  const perAccount = Object.fromEntries([...stats].map(([id, account]) => [id, serialize(account)]));
+  const all = { accountId: '__all__', accountName: 'الإجمالي', firstReplies: [], repeatReplies: [], pending: [] };
+  for (const account of stats.values()) {
+    all.firstReplies.push(...account.firstReplies);
+    all.repeatReplies.push(...account.repeatReplies);
+    all.pending.push(...account.pending);
+  }
+  return { observationHours: 48, perAccount, total: serialize(all) };
+}
+
+function buildEvidenceByAccount(dateStats, messages, audioRows) {
+  const chatsByAccount = new Map();
+  for (const row of [...messages, ...audioRows]) {
+    if (!['sales', 'customer'].includes(row.sender)) continue;
+    const id = row.account_id || 'unknown';
+    const chatId = String(row.chat_id || '').trim().replace(/@(c\.us|s\.whatsapp.net|lid)$/i, '');
+    const key = chatId || row.customer_phone || row.customer_name || 'unknown';
+    if (!chatsByAccount.has(id)) chatsByAccount.set(id, new Map());
+    if (!chatsByAccount.get(id).has(key)) chatsByAccount.get(id).set(key, { sales: 0, customer: 0 });
+    chatsByAccount.get(id).get(key)[row.sender]++;
+  }
+  const perAccount = {};
+  for (const [accountId, row] of Object.entries(dateStats.perAccount || {})) {
+    const chats = chatsByAccount.get(accountId) || new Map();
+    const shortChats = [...chats.values()].filter(chat => chat.sales + chat.customer < 4 || !chat.sales || !chat.customer).length;
+    const sufficient = Number(row.chats) >= 3 && Number(row.salesMessages) >= 10 && Number(row.customerMessages) >= 5;
+    perAccount[accountId] = { accountId, accountName: row.accountName, status: sufficient ? 'sufficient' : 'insufficient',
+      chats: Number(row.chats) || 0, salesMessages: Number(row.salesMessages) || 0, customerMessages: Number(row.customerMessages) || 0,
+      shortChats, minimum: { chats: 3, salesMessages: 10, customerMessages: 5 },
+      note: sufficient
+        ? `${shortChats} محادثة قصيرة أو أحادية الطرف لا تكفي وحدها لاستنتاج سلوك؛ التقييم العام يستند إلى عينة الحساب كاملة.`
+        : `دليل غير كافٍ لدرجة يومية موثوقة: يلزم 3 محادثات و10 رسائل سيلز و5 رسائل عملاء على الأقل. المتاح: ${row.chats} محادثة، ${row.salesMessages} رسالة سيلز، ${row.customerMessages} رسالة عميل.` };
+  }
+  return perAccount;
+}
+
+function applyEvidenceGate(reportText, scores, evidenceByAccount) {
+  const normalized = (scores || []).map(score => {
+    const evidence = evidenceByAccount[score.accountId];
+    if (!evidence || evidence.status === 'insufficient') {
+      return { ...score, overallScore: 0, evidenceStatus: 'insufficient', evidenceNote: evidence?.note || 'دليل غير كافٍ' };
+    }
+    return { ...score, evidenceStatus: 'sufficient', evidenceNote: evidence.note };
+  });
+  const insufficientNames = Object.values(evidenceByAccount).filter(row => row.status === 'insufficient').map(row => row.accountName);
+  let text = reportText;
+  for (const name of insufficientNames) {
+    const escaped = String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const namePattern = new RegExp(`(^#{1,6}[^\\n]*${escaped}[^\\n]*\\n[\\s\\S]{0,500}?)(?:الدرجة الإجمالية|الدرجة الكلية|الدرجة)\\s*[:：]?\\s*\\d+\\s*\\/?\\s*100`, 'm');
+    text = text.replace(namePattern, `$1**التقييم: دليل غير كافٍ**`);
+  }
+  return { report: text, scores: normalized };
+}
+
 /** Generate a report once, then send only new/changed message events to Gemini. */
 async function generateDailyReportInternal({ accountId, period, allowEmpty = false } = {}) {
   if (!db) return { success: false, error: 'قاعدة البيانات غير متاحة' };
@@ -630,12 +750,24 @@ async function generateDailyReportInternal({ accountId, period, allowEmpty = fal
     ? await db.getCachedDailyReport(accountId || null, selectedDate, sourceVersion, period, true, true)
     : null;
 
-  const [messages, audioRows, dateStats, contacts] = await Promise.all([
+  const [messages, audioRows, dateStats, contacts, recentMessages, recentAudioRows] = await Promise.all([
     db.getTodayMessages(accountId || null, selectedDate, period),
     db.getAudioMessages(accountId || null, selectedDate, period),
     db.getTodayStats(selectedDate, accountId || null, period),
-    db.getLeadFollowupContacts(accountId || null, selectedDate, period)
+    db.getLeadFollowupContacts(accountId || null, selectedDate, period),
+    db.getTodayMessages(accountId || null, null, 'last48h'),
+    db.getAudioMessages(accountId || null, null, 'last48h')
   ]);
+  const now = Date.now();
+  const [periodStartIso, periodEndIso] = period === 'last48h'
+    ? [new Date(now - 48 * 60 * 60 * 1000).toISOString(), new Date(now).toISOString()]
+    : getCairoDateRange(selectedDate);
+  const periodStart = Date.parse(periodStartIso);
+  const periodEnd = Math.min(Date.parse(periodEndIso), now);
+  const responseMetrics = buildResponseMetrics(recentMessages, recentAudioRows, {
+    periodStart, periodEnd, now
+  });
+  const evidenceByAccount = buildEvidenceByAccount(dateStats, messages, audioRows);
   const manifest = db.buildReportInputManifest(messages, audioRows);
   // If a report from the previous format matches the exact same database
   // revision, adopt it without paying for a second full analysis. Otherwise
@@ -670,7 +802,7 @@ async function generateDailyReportInternal({ accountId, period, allowEmpty = fal
     accounts: dateStats.accounts, chats: dateStats.chats, total_messages: dateStats.total_messages,
     sales_messages: dateStats.sales_messages, customer_messages: dateStats.customer_messages,
     leadCount: contacts.leadCount, followupCount: contacts.followupCount, perAccount: dateStats.perAccount,
-    messageTimesByAccount, period, calculatedAt: new Date().toISOString()
+    messageTimesByAccount, responseMetrics, evidenceByAccount, period, calculatedAt: new Date().toISOString()
   };
 
   if (!cached && messages.length === 0 && audioRows.length === 0 && allowEmpty) {
@@ -686,7 +818,8 @@ async function generateDailyReportInternal({ accountId, period, allowEmpty = fal
   }
 
   if (cached && !hasNewInputs) {
-    return { ...cached, period, currentStats, leadCount: contacts.leadCount, followupCount: contacts.followupCount,
+    const gated = applyEvidenceGate(cached.report, cached.scores, evidenceByAccount);
+    return { ...cached, report: gated.report, scores: gated.scores, date: selectedDate, period, currentStats, leadCount: contacts.leadCount, followupCount: contacts.followupCount,
       monthlyScores: await db.getMonthlySalesScores(selectedDate.slice(0, 7), accountId || null),
       audioEvidence: buildAudioEvidence(audioRows), cached: true, noNewMessages: true };
   }
@@ -698,7 +831,7 @@ async function generateDailyReportInternal({ accountId, period, allowEmpty = fal
     : fullText;
   const textActivity = cached ? (dateStats.perAccount || {}) : (fullText.stats.perAccount || {});
   const reportStats = { ...dateStats, textActivityByAccount: textActivity,
-    messageTimesByAccount, leadCount: contacts.leadCount, followupCount: contacts.followupCount, period };
+    messageTimesByAccount, responseMetrics, evidenceByAccount, leadCount: contacts.leadCount, followupCount: contacts.followupCount, period };
   const audioSummary = buildAudioSummary(newAudioRows);
 
   let report;
@@ -723,7 +856,11 @@ async function generateDailyReportInternal({ accountId, period, allowEmpty = fal
 
   if (report.success) {
     report.report = removeDuplicateActivitySection(report.report);
+    const gated = applyEvidenceGate(report.report, report.scores, evidenceByAccount);
+    report.report = gated.report;
+    report.scores = gated.scores;
     report.period = period;
+    report.date = selectedDate;
     report.leadCount = contacts.leadCount;
     report.followupCount = contacts.followupCount;
     report.currentStats = currentStats;
@@ -733,7 +870,8 @@ async function generateDailyReportInternal({ accountId, period, allowEmpty = fal
       for (const contact of contacts.leads) leadCounts[contact.accountId] = (leadCounts[contact.accountId] || 0) + 1;
       for (const contact of contacts.followups) followupCounts[contact.accountId] = (followupCounts[contact.accountId] || 0) + 1;
       const conversationCounts = Object.fromEntries(Object.entries(dateStats.perAccount || {}).map(([id, row]) => [id, row.chats]));
-      await db.saveSalesDailyScores(report.scores, { date: selectedDate, leadCounts, followupCounts, conversationCounts });
+      const reliableScores = report.scores.filter(score => score.evidenceStatus !== 'insufficient');
+      await db.saveSalesDailyScores(reliableScores, { date: selectedDate, leadCounts, followupCounts, conversationCounts });
     }
     report.monthlyScores = await db.getMonthlySalesScores(selectedDate.slice(0, 7), accountId || null);
     if (period === 'last48h') {

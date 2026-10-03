@@ -46,7 +46,7 @@ async function initialize() {
 }
 
 const ALL_ACCOUNTS_KEY = '__all__';
-const REPORT_PROMPT_VERSION = 'daily-report-v13-audio-evidence-review';
+const REPORT_PROMPT_VERSION = 'daily-report-v14-followup-evidence';
 
 function normalizeReportPeriod(period) {
   return period === 'last48h' ? 'last48h' : 'today';
@@ -524,33 +524,12 @@ async function formatMessagesForGemini(accountId = null, date = null, period = '
   for (const account of Object.values(grouped)) {
     const chats = Object.values(account.chats);
     const all = account.allMessages.slice().sort((a,b) => new Date(a.timestamp)-new Date(b.timestamp));
-    const responseTimes = [];
-    for (const chat of chats) {
-      const ordered = chat.messages.slice().sort((a,b) => new Date(a.timestamp)-new Date(b.timestamp));
-      for (let i=1; i<ordered.length; i++) {
-        if (ordered[i-1].sender === 'customer' && ordered[i].sender === 'sales') {
-          const seconds = (new Date(ordered[i].timestamp)-new Date(ordered[i-1].timestamp))/1000;
-          if (seconds > 0 && seconds < 3600) responseTimes.push({ sec: seconds, time: ordered[i].display_time || ordered[i].timestamp });
-        }
-      }
-    }
-    const duration = sec => sec === null ? 'غير متاح' : sec < 60 ? sec + ' ث' : Math.floor(sec/60) + ' د ' + (sec%60) + ' ث';
-    const responseStats = responseTimes.length ? {
-      avg: Math.round(responseTimes.reduce((sum,item)=>sum+item.sec,0)/responseTimes.length),
-      fastest: responseTimes.reduce((a,b)=>a.sec<b.sec?a:b),
-      slowest: responseTimes.reduce((a,b)=>a.sec>b.sec?a:b), count: responseTimes.length
-    } : { avg: null, fastest: null, slowest: null };
-    text += '\n' + '='.repeat(60) + '\n👤 ممثل المبيعات: ' + account.accountName + '\n👥 عدد العملاء المختلفين اليوم: ' + chats.length + ' عميل\n';
+    text += '\n' + '='.repeat(60) + '\n👤 ممثل المبيعات: ' + account.accountName + '\n👥 عدد العملاء المختلفين في الفترة: ' + chats.length + ' عميل\n';
     if (all.length) {
       text += '⏰ أول رسالة: ' + (all[0].display_time || all[0].timestamp) + (all[0].sender === 'sales' ? ' (صادرة للعميل: ' : ' (واردة من العميل: ') + all[0].customer_name + ')\n';
       text += '⏰ آخر رسالة: ' + (all[all.length-1].display_time || all[all.length-1].timestamp) + (all[all.length-1].sender === 'sales' ? ' (صادرة للعميل: ' : ' (واردة من العميل: ') + all[all.length-1].customer_name + ')\n';
       perAccountStats[account.accountId] = { accountId: account.accountId, accountName: account.accountName, customerCount: chats.length, firstMsg: all[0].display_time || all[0].timestamp,
-        lastMsg: all[all.length-1].display_time || all[all.length-1].timestamp, responseStats };
-    }
-    if (responseStats.avg !== null) {
-      text += '⚡ متوسط سرعة الرد: ' + duration(responseStats.avg) + ' (من ' + responseStats.count + ' رد)\n';
-      text += '🏆 أسرع رد: ' + duration(Math.round(responseStats.fastest.sec)) + ' (عند ' + responseStats.fastest.time + ')\n';
-      text += '🐢 أبطأ رد: ' + duration(Math.round(responseStats.slowest.sec)) + ' (عند ' + responseStats.slowest.time + ')\n';
+        lastMsg: all[all.length-1].display_time || all[all.length-1].timestamp };
     }
     text += '='.repeat(60) + '\n\n';
     for (const chat of chats) {

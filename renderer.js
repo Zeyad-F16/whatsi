@@ -27,6 +27,7 @@ let editingAccountId = null;
 let currentView = 'whatsapp';
 let reportData = null;
 let reportPeriod = 'today';
+let latestEvidenceGate = null;
 
 function normalizeReportPhone(value) {
   const western = String(value || '').replace(/[٠-٩۰-۹]/g, digit => {
@@ -339,6 +340,7 @@ window.generateReport = async function(requestedPeriod = null) {
 
     if (result.success) {
       reportData = result;
+      latestEvidenceGate = { date: result.date, period: result.period, evidenceByAccount: result.currentStats?.evidenceByAccount || {} };
       displayReport(result);
       renderMonthlyScores(result.monthlyScores || []);
       reportOutput.classList.remove('hidden');
@@ -367,6 +369,10 @@ function displayReport(result) {
     ? '<p class="report-update-note" dir="rtl">تم إلحاق تحليل الرسائل الجديدة بنهاية التقرير. أوقات الرسائل المعروضة أدناه محسوبة من سجلات قاعدة البيانات الحالية؛ أما متن التحليل المحفوظ فيحتفظ بتوقيته وقت إنشائه. الدرجة داخل المتن هي الدرجة الأصلية، بينما يعرض جدول التطور الشهري أحدث درجة بعد تحليل الرسائل الجديدة.</p>'
     : '';
   reportText.innerHTML = countSummary + summaryStats + updateNote + formattedReport;
+  const responseMetricsSection = renderResponseMetrics(stats.responseMetrics || {});
+  if (responseMetricsSection) reportText.insertBefore(responseMetricsSection, reportText.querySelector('.report-h1') || reportText.firstChild);
+  const evidenceSection = renderEvidenceCoverage(stats.evidenceByAccount || {});
+  if (evidenceSection) reportText.insertBefore(evidenceSection, reportText.querySelector('.report-h1') || reportText.firstChild);
   const messageTimesSection = renderMessageTimes(result.currentStats?.messageTimesByAccount || {});
   if (messageTimesSection) {
     const reportHeading = reportText.querySelector('.report-h1');
@@ -387,6 +393,99 @@ function displayReport(result) {
       showToast('تعذر النسخ تلقائيًا. حدّد الرقم وانسخه يدويًا.', 'error');
     }
   };
+}
+
+function formatDuration(seconds, lowerBound = false) {
+  if (seconds === null || seconds === undefined || seconds === '') return 'لا توجد بيانات';
+  if (!Number.isFinite(Number(seconds))) return 'لا توجد بيانات';
+  let remaining = Math.max(0, Math.round(Number(seconds)));
+  const hours = Math.floor(remaining / 3600);
+  const minutes = Math.floor((remaining % 3600) / 60);
+  const secs = remaining % 60;
+  const parts = [];
+  if (hours) parts.push(`${hours} ساعة`);
+  if (minutes) parts.push(`${minutes} دقيقة`);
+  if (!hours && !minutes) parts.push(`${secs} ثانية`);
+  return `${lowerBound ? '≥ ' : ''}${parts.join(' و')}`;
+}
+
+function renderResponseMetrics(metrics) {
+  const accounts = Object.values(metrics.perAccount || {});
+  if (!accounts.length) return null;
+  if (metrics.total && accounts.length > 1) accounts.unshift(metrics.total);
+  const section = document.createElement('section');
+  section.className = 'report-response-metrics';
+  section.dir = 'rtl';
+  const heading = document.createElement('h2');
+  heading.textContent = 'إحصائيات متابعة محسوبة من قاعدة البيانات';
+  const note = document.createElement('p');
+  note.className = 'response-metrics-note';
+  note.textContent = 'متوسط ووسيط سرعة الرد مبنيان على أدوار الرسائل النصية والصوتية التي بدأها العميل وانتهت برد من السيلز. أول رد هو أول رد مرصود لكل محادثة في الفترة، وليس أول تواصل على الإطلاق. الانتظار الحالي مرصود ضمن آخر 48 ساعة فقط؛ الرمز ≥ يعني أن بدايته قد تسبق البيانات المتاحة.';
+  section.append(heading, note);
+
+  const table = document.createElement('table');
+  table.className = 'response-metrics-table';
+  const header = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  for (const label of ['الحساب', 'أول رد: متوسط · وسيط · عدد', 'الردود المتكررة: متوسط · وسيط · عدد', 'محادثات تنتظر رد السيلز', 'أقدم انتظار']) {
+    const cell = document.createElement('th'); cell.textContent = label; headerRow.appendChild(cell);
+  }
+  header.appendChild(headerRow);
+  const body = document.createElement('tbody');
+  for (const account of accounts) {
+    const row = document.createElement('tr');
+    const values = [
+      account.accountName || 'حساب غير معروف',
+      `${formatDuration(account.firstReply.averageSeconds)} · ${formatDuration(account.firstReply.medianSeconds)} · ${account.firstReply.count} رد`,
+      `${formatDuration(account.repeatedReplies.averageSeconds)} · ${formatDuration(account.repeatedReplies.medianSeconds)} · ${account.repeatedReplies.count} رد`,
+      String(account.pendingSalesReplyCount),
+      formatDuration(account.oldestPendingSeconds, account.oldestPendingIsLowerBound)
+    ];
+    values.forEach((value, index) => { const cell = document.createElement(index ? 'td' : 'th'); if (!index) cell.scope = 'row'; cell.textContent = value; row.appendChild(cell); });
+    body.appendChild(row);
+  }
+  table.append(header, body);
+  section.appendChild(table);
+  return section;
+}
+
+function renderEvidenceCoverage(evidenceByAccount) {
+  const accounts = Object.values(evidenceByAccount || {});
+  if (!accounts.length) return null;
+  const section = document.createElement('section');
+  section.className = 'report-evidence-coverage';
+  section.dir = 'rtl';
+  const heading = document.createElement('h2');
+  heading.textContent = 'كفاية عينة التقييم';
+  const note = document.createElement('p');
+  note.className = 'evidence-coverage-note';
+  note.textContent = 'الأرقام أدناه حقائق من قاعدة البيانات. التقييمات السلوكية آراء تحليلية لا تُعرض كدرجة موثوقة إلا عند توفر 3 محادثات و10 رسائل سيلز و5 رسائل عملاء على الأقل؛ والمحادثة القصيرة لا تكفي وحدها لإثبات سلوك. عند عدم كفاية العينة لا تُحفظ درجة رقمية لهذا اليوم ولا تُعرض كصفر.';
+  section.append(heading, note);
+  for (const account of accounts) {
+    const card = document.createElement('article');
+    card.className = `evidence-coverage-card${account.status === 'insufficient' ? ' evidence-coverage-card--insufficient' : ''}`;
+    const title = document.createElement('strong'); title.textContent = `${account.accountName || 'الحساب'} — ${account.status === 'sufficient' ? 'عينة كافية للتقييم العام' : 'دليل غير كافٍ لدرجة يومية موثوقة'}`;
+    const detail = document.createElement('p'); detail.textContent = `${account.chats} محادثة · ${account.salesMessages} رسالة سيلز · ${account.customerMessages} رسالة عميل · ${account.shortChats} محادثة قصيرة/أحادية الطرف`;
+    const qualification = document.createElement('p'); qualification.textContent = account.note || '';
+    card.append(title, detail, qualification); section.appendChild(card);
+  }
+  return section;
+}
+
+function formatResponseMetricsText(metrics = {}) {
+  const accounts = Object.values(metrics.perAccount || {});
+  if (!accounts.length) return '';
+  const rows = accounts.map(account => {
+    const metric = value => `متوسط ${formatDuration(value.averageSeconds)}؛ وسيط ${formatDuration(value.medianSeconds)}؛ العدد ${value.count}`;
+    return `الحساب: ${account.accountName || 'غير معروف'}\nأول رد مرصود: ${metric(account.firstReply)}\nالردود المتكررة: ${metric(account.repeatedReplies)}\nمحادثات تنتظر رد السيلز: ${account.pendingSalesReplyCount}\nأقدم انتظار: ${formatDuration(account.oldestPendingSeconds, account.oldestPendingIsLowerBound)}`;
+  });
+  return `\n\nإحصائيات متابعة محسوبة من قاعدة البيانات\n${rows.join('\n\n')}\nملاحظة: الانتظار مرصود من آخر 48 ساعة فقط، و≥ تعني أن البداية قد تسبق البيانات المتاحة.`;
+}
+
+function formatEvidenceCoverageText(evidenceByAccount = {}) {
+  const accounts = Object.values(evidenceByAccount);
+  if (!accounts.length) return '';
+  return `\n\nكفاية عينة التقييم\n${accounts.map(account => `${account.accountName}: ${account.status === 'sufficient' ? 'عينة كافية للتقييم العام' : 'دليل غير كافٍ'} — ${account.chats} محادثة، ${account.salesMessages} رسالة سيلز، ${account.customerMessages} رسالة عميل، ${account.shortChats} محادثة قصيرة/أحادية الطرف. ${account.note}`).join('\n')}`;
 }
 
 function renderMessageTimes(accountsById) {
@@ -597,6 +696,11 @@ async function loadMonthlyScores() {
 function renderMonthlyScores(scores = []) {
   const body = document.getElementById('monthly-scores-body');
   if (!body) return;
+  if (latestEvidenceGate && latestEvidenceGate.period !== 'last48h') {
+    const insufficientAccountIds = new Set(Object.values(latestEvidenceGate.evidenceByAccount)
+      .filter(account => account.status === 'insufficient').map(account => account.accountId));
+    scores = scores.filter(row => !(insufficientAccountIds.has(row.account_id) && String(row.score_date).slice(0, 10) === latestEvidenceGate.date));
+  }
   if (!scores.length) {
     body.innerHTML = '<tr><td colspan="7" class="scores-empty">لا توجد تقييمات محفوظة لهذا الشهر بعد. استخرج تقرير اليوم لحفظ تقييم.</td></tr>';
     return;
@@ -706,7 +810,7 @@ function showReportError(message) {
 window.copyReport = function() {
   if (!reportData) return;
   
-  navigator.clipboard.writeText(reportData.report + formatMessageTimesText(reportData.currentStats?.messageTimesByAccount || {}) + formatAudioEvidenceText(reportData.audioEvidence || [])).then(() => {
+  navigator.clipboard.writeText(reportData.report + formatResponseMetricsText(reportData.currentStats?.responseMetrics || {}) + formatEvidenceCoverageText(reportData.currentStats?.evidenceByAccount || {}) + formatMessageTimesText(reportData.currentStats?.messageTimesByAccount || {}) + formatAudioEvidenceText(reportData.audioEvidence || [])).then(() => {
     const btn = document.querySelector('.copy-btn');
     btn.textContent = '✅ تم النسخ!';
     showToast('تم نسخ التقرير إلى الحافظة بنجاح', 'success');

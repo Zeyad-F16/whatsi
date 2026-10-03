@@ -1337,6 +1337,21 @@ webview.active {
 .report-current-stats-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:8px; }
 .report-current-stats-grid span { display:flex; justify-content:space-between; gap:8px; padding:9px 11px; border-radius:8px; background:var(--bg-medium); color:var(--text-secondary); font-size:.82rem; }
 .report-current-stats-grid b { color:var(--accent-teal); direction:ltr; }
+.report-response-metrics, .report-evidence-coverage { margin:0 0 20px; padding:16px; border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-card); }
+.report-response-metrics > h2, .report-evidence-coverage > h2 { margin:0; color:var(--text-primary); font-size:1rem; }
+.response-metrics-note, .evidence-coverage-note { margin:7px 0 12px; color:var(--text-dim); font-size:.8rem; line-height:1.7; }
+.response-metrics-table { width:100%; border-collapse:collapse; font-size:.8rem; }
+.response-metrics-table th, .response-metrics-table td { padding:10px 9px; border-bottom:1px solid var(--border-color); text-align:right; vertical-align:top; }
+.response-metrics-table thead th { color:var(--accent-blue); background:var(--bg-medium); }
+.response-metrics-table tbody th { color:var(--text-primary); white-space:nowrap; }
+.response-metrics-table tbody td { color:var(--text-secondary); }
+.response-metrics-table tr:last-child th, .response-metrics-table tr:last-child td { border-bottom:0; }
+.evidence-coverage-card { margin-top:9px; padding:11px 13px; border:1px solid var(--border-color); border-radius:9px; background:var(--bg-medium); }
+.evidence-coverage-card strong { color:var(--accent-teal); font-size:.85rem; }
+.evidence-coverage-card p { margin:6px 0 0; color:var(--text-secondary); font-size:.8rem; line-height:1.65; }
+.evidence-coverage-card--insufficient { border-color:rgba(245,158,11,.45); background:rgba(120,75,10,.12); }
+.evidence-coverage-card--insufficient strong { color:#ffc36b; }
+@media (max-width:900px) { .response-metrics-table { min-width:760px; } .report-response-metrics { overflow-x:auto; } }
 .report-update-note { margin:0 0 18px; padding:10px 12px; border-right:3px solid var(--accent-blue); border-radius:7px; background:rgba(59,130,246,.08); color:var(--text-secondary); font-size:.82rem; line-height:1.7; }
 .report-message-times { margin:0 0 20px; padding:16px; border:1px solid var(--border-color); border-radius:var(--radius-md); background:var(--bg-card); }
 .report-message-times > h2 { margin:0; color:var(--text-primary); font-size:1rem; }

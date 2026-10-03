@@ -95,13 +95,17 @@ async function analyzeDailyChats(formattedChats, stats, reportDate, audioSummary
 - ليدات جديدة محسوبة من سجل الاتصال: ${stats.leadCount || 0}
 - فولو أب محسوب من سجل الاتصال: ${stats.followupCount || 0}
 - توزيع الشاتات والرسائل لكل حساب (محسوب من قاعدة البيانات): ${JSON.stringify(stats.perAccount || {})}
+- إحصائيات المتابعة الدقيقة المحسوبة من الرسائل النصية والصوتية في قاعدة البيانات: ${JSON.stringify(stats.responseMetrics || {})}
+- كفاية الأدلة لكل حساب وحدودها: ${JSON.stringify(stats.evidenceByAccount || {})}
 - الفترة: ${period === 'last48h' ? 'آخر 48 ساعة متحركة' : period === 'yesterday' ? 'أمس من منتصف الليل حتى نهايته' : 'اليوم من منتصف الليل حتى الآن'}
+
+أرقام المتابعة حقائق محسوبة برمجيًا وليست رأيًا: لا تعِد حسابها من نص المحادثات. «أول رد» يعني أول رد مرصود على دور عميل بدأ في الفترة، ولا يعني أول تواصل على الإطلاق. انتظار الرد الحالي مرصود من آخر 48 ساعة المتاحة؛ إذا كانت بدايته قبل نافذة الرصد فاعرض المدة كحد أدنى (≥).
 
 ## مؤشرات محسوبة محليًا للرسائل النصية فقط (JSON):
 ${JSON.stringify(stats.textActivityByAccount || {}, null, 2)}
 هذه المؤشرات محسوبة من الطوابع الزمنية محليًا وليست تقديرات. وضّح أنها للرسائل النصية فقط؛ لا تنسبها إلى الصوت ولا تجمعها مع أعداد قاعدة البيانات مرة أخرى.
 
-## المحادثات الكاملة (تتضمن بيانات سرعة الرد لكل سيلز):
+## المحادثات الكاملة:
 ${formattedChats}
 
 ${audioSummary ? `## الرسائل الصوتية المسجّلة وتفريغها:\n${audioSummary}\n` : ''}
@@ -110,6 +114,12 @@ ${SALES_PLAYBOOK_RUBRIC}
 
 ## التعليمات:
 اكتب تقريرًا إداريًا عربيًا شاملًا على غرار تقرير تدقيق مبيعات منظم: مقدمة تحدد ممثل المبيعات والحساب والفترة من البيانات المتاحة، ثم الأقسام الأربعة أدناه بالترتيب، ثم خلاصة موجزة للإدارة. لا تخترع اسم مؤسسة أو موظف أو تاريخ أو معلومة غير موجودة. لا تختصره إلى ملخص تنفيذي.
+
+## فصل الحقائق عن الرأي وكفاية الدليل:
+- الأعداد والأوقات وإحصائيات المتابعة حقائق محسوبة من قاعدة البيانات؛ اعرضها كما هي ولا تنسبها إلى Gemini ولا تحسبها مرة أخرى.
+- تقييم السلوك والأسلوب استنتاج تحليلي، وليس حقيقة مؤكدة. اربط كل استنتاج برقم الطالب/معرّف الشات، والوقت، واقتباس قصير حرفي.
+- الحد الأدنى لدرجة يومية قابلة للاعتماد هو 3 محادثات و10 رسائل سيلز و5 رسائل عملاء للحساب. إذا كانت حالة الحساب في evidenceByAccount هي insufficient أو لم تتحقق الحدود، اكتب «دليل غير كافٍ» ولا تعرض درجات رقمية للحساب أو درجات محاور واثقة. dailyScores يعيد overallScore=0 كقيمة شكلية بالمخطط مع evidenceStatus="insufficient"؛ التطبيق لن يعرضها كدرجة ولن يحفظها.
+- حتى مع كفاية عينة الحساب، المحادثة القصيرة (أقل من 4 رسائل أو أحادية الطرف) لا تكفي لتقييم سلوكها؛ صرّح بـ«دليل غير كافٍ لتقييم هذه المحادثة» ولا تعمم منها صفة على السيلز.
 
 ## قاعدة إلزامية للاستدلال وربط كل ملاحظة بصاحبها:
 - كل وصف أو استنتاج عن سلوك السيلز (مثل التأخر، ضعف الاستماع، الضغط، الإهمال، المتابعة الجيدة، أو دقة الشرح) يجب أن يذكر رقم واتساب الطالب كما ورد في عنوان المحادثة، ثم يورد اقتباسًا حرفيًا قصيرًا من الرسائل وتوقيته.
@@ -148,12 +158,13 @@ ${SALES_PLAYBOOK_RUBRIC}
 استخدم عناوين وترقيمًا وقوائم واضحة وجدولًا حقيقيًا لمحاور التقييم، مثل تقرير مرفوع للإدارة. افصل الحقائق المحسوبة عن التقييم النوعي. أجب بالعربية بالكامل، ولا تخمّن الأرقام أو أسماء العملاء أو نتائج البيع، واربط كل نقد باقتباس من السجل.
 
 ## صيغة الإخراج:
-أعد JSON صالحًا فقط بالمفاتيح التالية: report (نص التقرير Markdown كاملًا)، dailyScores (مصفوفة تقييم يومي عنصر واحد لكل حساب في التوزيع أعلاه). كل عنصر يحتوي accountId (المعرف حرفيًا من التوزيع)، accountName، overallScore عددًا صحيحًا من 0 إلى 100، وimprovement (أهم نقطة تطوير مدعومة بمثال قصير). لا تسقط حسابًا ولا تخترع معرفًا.
+أعد JSON صالحًا فقط بالمفاتيح التالية: report (نص التقرير Markdown كاملًا)، dailyScores (مصفوفة تقييم يومي عنصر واحد لكل حساب في التوزيع أعلاه). كل عنصر يحتوي accountId (المعرف حرفيًا من التوزيع)، accountName، overallScore عددًا صحيحًا من 0 إلى 100، improvement (أهم نقطة تطوير مدعومة بمثال قصير)، evidenceStatus (sufficient أو insufficient)، وevidenceNote (سبب مختصر). لا تسقط حسابًا ولا تخترع معرفًا.
 `;
 
   const scoreSchema = { type: 'OBJECT', properties: {
-    accountId: { type: 'STRING' }, accountName: { type: 'STRING' }, overallScore: { type: 'INTEGER' }, improvement: { type: 'STRING' }
-  }, required: ['accountId', 'accountName', 'overallScore', 'improvement'] };
+    accountId: { type: 'STRING' }, accountName: { type: 'STRING' }, overallScore: { type: 'INTEGER' }, improvement: { type: 'STRING' },
+    evidenceStatus: { type: 'STRING', enum: ['sufficient', 'insufficient'] }, evidenceNote: { type: 'STRING' }
+  }, required: ['accountId', 'accountName', 'overallScore', 'improvement', 'evidenceStatus', 'evidenceNote'] };
   const responseSchema = { type: 'OBJECT', properties: {
     report: { type: 'STRING' }, dailyScores: { type: 'ARRAY', items: scoreSchema }
   }, required: ['report', 'dailyScores'] };
@@ -234,16 +245,20 @@ ${audioSummary ? `## تفريغات صوتية جديدة أو مكتملة فق
 - اكتب لكل محادثة متأثرة ما الجديد، وما الذي يثبته الدليل، وما أثره المحتمل، والخطوة التالية. لا تكرر المحادثات أو الأدلة القديمة.
 - إذا تضمنت الرسائل الجديدة نصوصًا صادرة من السيلز، قيّم وضوحها ومهنيتها وتعاطفها وملاءمتها للسؤال. اذكر **خطأ كتابي مثبت** فقط عند وجود دليل واضح، مع رقم الطالب والتوقيت والاقتباس الحرفي وأثره وصياغة بديلة؛ وافصل ذلك عن **فرصة لتحسين الأسلوب**. اكتب الوسمين بالخط العريض، وإذا لم يوجد خطأ مدعوم فاكتب ذلك، ولا تنتقد اللهجة أو الأخطاء البسيطة غير المؤثرة.
 - افصل بين الحقيقة والاستنتاج، ولا تخترع الأسعار أو نتائج الصفقات أو نية الموظف. لا تحكم على تفريغ صوت لم يكتمل.
+- أرقام المتابعة في stats.responseMetrics حقائق محسوبة من قاعدة البيانات؛ لا تعد حسابها. «أول رد» هو أول رد مرصود لدور بدأ في الفترة. الانتظار الحالي مرصود من آخر 48 ساعة فقط ويكون حدًا أدنى إذا بدأت نافذة الانتظار قبل ذلك.
 - عند مراجعة تفريغ صوت جديد، اذكر الإساءة فقط إذا دعمها النص بوضوح، مع اقتباس قصير وتوقيت ورقم الطالب؛ لا تخلط بين النبرة المنزعجة والإساءة اللفظية.
 - استخدم أرقام قاعدة البيانات الحالية كما هي ولا تعِد عدّها من نص الرسائل.
-- dailyScores: أعد تقييمًا محدثًا لكل حساب ظاهر في stats.perAccount، مع الاستفادة من الدرجة السابقة كخط أساس ومن الأدلة الجديدة فقط كتغيير. لا تعِد تقييم تفاصيل سابقة غير موجودة هنا، ولا تخفض أو ترفع الدرجة دون دليل جديد. اكتب improvement موجزًا ومدعومًا.
+- إذا كان حساب في stats.evidenceByAccount غير كافٍ، اكتب «دليل غير كافٍ» ولا تعرض له درجة في الملحق، وأعد overallScore=0 كقيمة شكلية وevidenceStatus="insufficient" مع السبب. التطبيق لا يحفظ القيمة الشكلية ولا يعرضها كدرجة.
+- لا تستنتج صفة من محادثة قصيرة (أقل من 4 رسائل أو أحادية الطرف)؛ اذكر أن دليلها غير كافٍ.
+- dailyScores: أعد تقييمًا محدثًا لكل حساب ظاهر في stats.perAccount، مع الاستفادة من الدرجة السابقة كخط أساس ومن الأدلة الجديدة فقط كتغيير. لا تعِد تقييم تفاصيل سابقة غير موجودة هنا، ولا تخفض أو ترفع الدرجة دون دليل جديد. اكتب improvement موجزًا ومدعومًا، وحدد evidenceStatus وevidenceNote.
 - إذا لم يوجد تغيير سلوكي ذي دلالة، اجعل appendix فارغًا. لا تنشئ عنوان ملحق أو عبارة عامة لمجرد وجود رسائل جديدة.
 
-أعد JSON صالحًا فقط: appendix (نص Markdown للملحق)، dailyScores (مصفوفة عنصر لكل حساب نشط تتضمن accountId وaccountName وoverallScore بين 0 و100 وimprovement).
+أعد JSON صالحًا فقط: appendix (نص Markdown للملحق)، dailyScores (مصفوفة عنصر لكل حساب نشط تتضمن accountId وaccountName وoverallScore بين 0 و100 وimprovement وevidenceStatus وevidenceNote).
 `;
   const scoreSchema = { type: 'OBJECT', properties: {
-    accountId: { type: 'STRING' }, accountName: { type: 'STRING' }, overallScore: { type: 'INTEGER' }, improvement: { type: 'STRING' }
-  }, required: ['accountId', 'accountName', 'overallScore', 'improvement'] };
+    accountId: { type: 'STRING' }, accountName: { type: 'STRING' }, overallScore: { type: 'INTEGER' }, improvement: { type: 'STRING' },
+    evidenceStatus: { type: 'STRING', enum: ['sufficient', 'insufficient'] }, evidenceNote: { type: 'STRING' }
+  }, required: ['accountId', 'accountName', 'overallScore', 'improvement', 'evidenceStatus', 'evidenceNote'] };
   const responseSchema = { type: 'OBJECT', properties: {
     appendix: { type: 'STRING' }, dailyScores: { type: 'ARRAY', items: scoreSchema }
   }, required: ['appendix', 'dailyScores'] };
