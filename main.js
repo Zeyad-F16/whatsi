@@ -775,6 +775,7 @@ async function generateDailyReportInternal({ accountId, period, allowEmpty = fal
       : getCairoDateRange(selectedDate);
   const periodStart = Date.parse(periodStartIso);
   const periodEnd = Math.min(Date.parse(periodEndIso), now);
+  const observationHours = period === 'last7days' ? (DATA_RETENTION_DAYS * 24) : period === 'last48h' ? 48 : 24;
   const schedules = getAccountScheduleMap();
   const excludedPhones = getExcludedPhonesNormalized();
   const isExcluded = row => {
