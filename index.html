@@ -93,6 +93,7 @@
                 <button class="period-btn active" id="report-today-btn" onclick="generateReport('today')">تقرير اليوم</button>
                 <button class="period-btn" id="report-yesterday-btn" onclick="generateReport('yesterday')">تقرير أمس</button>
                 <button class="period-btn" id="report-last48-btn" onclick="generateReport('last48h')">تقرير آخر 48 ساعة</button>
+                <button class="period-btn" id="report-last7days-btn" onclick="generateReport('last7days')">تقرير آخر 7 أيام</button>
               </div>
             </div>
           </div>
@@ -102,6 +103,14 @@
             <button class="toolbar-btn" onclick="testGeminiConnection()" title="فحص مفتاح وصلاحية Gemini API">
               <span class="tb-icon">⚡</span>
               <span>فحص اتصال Gemini</span>
+            </button>
+            <button class="toolbar-btn" onclick="openMessagesPreview()" title="عرض الرسائل المسجلة في قاعدة البيانات">
+              <span class="tb-icon">📋</span>
+              <span>سجل الرسائل الملتقطة</span>
+            </button>
+            <button class="toolbar-btn" onclick="openSettingsModal()" title="إعدادات أرقام الفريق المستبعدة">
+              <span class="tb-icon">🛡️</span>
+              <span>أرقام الفريق المستبعدة</span>
             </button>
           </div>
 
@@ -131,6 +140,8 @@
               <div class="report-text" id="report-text"></div>
               <div class="report-actions">
                 <button class="action-btn copy-btn" onclick="copyReport()">📋 نسخ التقرير</button>
+                <button class="action-btn print-btn" onclick="printReport()">🖨️ طباعة / PDF</button>
+                <button class="action-btn export-btn" onclick="exportCsvLeads()">📊 تصدير Excel للعملاء</button>
                 <button class="action-btn refresh-btn" onclick="generateReport()">🔄 إعادة التحليل</button>
               </div>
             </div>
@@ -173,16 +184,16 @@
 
   <!-- ===== MODALS ===== -->
 
-  <!-- Add/Edit Account Modal -->
+  <!-- Add/Edit Account Modal with Custom Schedule -->
   <div id="name-modal" class="modal hidden">
     <div class="modal-backdrop" onclick="closeModal()"></div>
-    <div class="modal-content">
+    <div class="modal-content modal-medium">
       <div class="modal-header">
         <h3 id="modal-title">إضافة حساب جديد</h3>
         <button class="modal-close" onclick="closeModal()">✕</button>
       </div>
       <div class="modal-body">
-        <label class="input-label">اسم ممثل المبيعات أو الحساب</label>
+        <label class="input-label" for="account-name-input">اسم ممثل المبيعات أو الحساب</label>
         <input 
           type="text" 
           id="account-name-input" 
@@ -191,10 +202,75 @@
           autocomplete="off"
         />
         <p class="input-hint">سيظهر هذا الاسم في التقارير لتمييز أداء كل موظف</p>
+
+        <!-- مواعيد عمل الموظف المخصصة -->
+        <div class="schedule-config-box">
+          <div class="schedule-toggle-row">
+            <label class="toggle-checkbox-label">
+              <input type="checkbox" id="account-schedule-enabled" checked onchange="toggleScheduleInputs()" />
+              <span class="toggle-text"><b>تحديد مواعيد عمل مخصصة لهذا الموظف</b></span>
+            </label>
+          </div>
+          
+          <div id="schedule-inputs-area" class="schedule-inputs-area">
+            <div class="schedule-times-row">
+              <div class="time-field">
+                <label class="input-sublabel" for="account-work-start">وقت بدء العمل (يومياً):</label>
+                <input type="time" id="account-work-start" value="10:00" class="time-input" />
+              </div>
+              <div class="time-field">
+                <label class="input-sublabel" for="account-work-end">وقت نهاية العمل (يومياً):</label>
+                <input type="time" id="account-work-end" value="19:00" class="time-input" />
+              </div>
+            </div>
+
+            <div class="days-selector-group">
+              <label class="input-sublabel">أيام عمل الموظف الأسبوعية:</label>
+              <div class="work-days-grid" id="work-days-grid">
+                <label class="day-chip"><input type="checkbox" name="work-day-check" value="6" checked /><span>السبت</span></label>
+                <label class="day-chip"><input type="checkbox" name="work-day-check" value="0" checked /><span>الأحد</span></label>
+                <label class="day-chip"><input type="checkbox" name="work-day-check" value="1" checked /><span>الإثنين</span></label>
+                <label class="day-chip"><input type="checkbox" name="work-day-check" value="2" checked /><span>الثلاثاء</span></label>
+                <label class="day-chip"><input type="checkbox" name="work-day-check" value="3" checked /><span>الأربعاء</span></label>
+                <label class="day-chip"><input type="checkbox" name="work-day-check" value="4" checked /><span>الخميس</span></label>
+                <label class="day-chip"><input type="checkbox" name="work-day-check" value="5" /><span>الجمعة (إجازة)</span></label>
+              </div>
+            </div>
+            <p class="input-hint">يتم قياس وقت الرد واحتساب الانتظار فقط ضمن هذه الساعات والأيام المحددة لهذا الموظف.</p>
+          </div>
+        </div>
+
       </div>
       <div class="modal-footer">
         <button id="cancel-name-btn" class="modal-btn cancel" onclick="closeModal()">إلغاء</button>
         <button id="save-name-btn" class="modal-btn save">حفظ وإضافة</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal (Excluded internal numbers) -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeSettingsModal()"></div>
+    <div class="modal-content modal-medium">
+      <div class="modal-header">
+        <h3 id="settings-modal-title">🛡️ أرقام موظفي الفريق المستبعدة</h3>
+        <button class="modal-close" onclick="closeSettingsModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-intro">أدخل أرقام هواتف موظفي المبيعات أو الإدارة لاستبعاد محادثاتهم الداخلية بالكامل من الإحصائيات وعدم اعتبارهم عملاء أو ليدات.</p>
+        <label class="input-label" for="excluded-phones-input">الأرقام المستبعدة (رقم في كل سطر أو مفصولة بفاصلة):</label>
+        <textarea 
+          id="excluded-phones-input" 
+          rows="6" 
+          placeholder="مثال:&#10;+201012345678&#10;01098765432&#10;201123456789" 
+          class="modal-textarea"
+          dir="ltr"
+        ></textarea>
+        <p class="input-hint">سيتم استبعاد أي رسائل تخص هذه الأرقام من تقارير المبيعات واحتساب الليدات ومؤشرات سرعة الرد.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn cancel" onclick="closeSettingsModal()">إلغاء</button>
+        <button class="modal-btn save" onclick="saveInternalSettings()">حفظ الإعدادات</button>
       </div>
     </div>
   </div>

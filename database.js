@@ -4,8 +4,9 @@ const crypto = require('crypto');
 const { formatCairoTime, getCairoDateString, getCairoDateRange } = require('./timezone');
 
 let pool;
-const DATA_RETENTION_MS = 48 * 60 * 60 * 1000;
-const RETENTION_SQL = "timestamp >= NOW() - INTERVAL '48 hours'";
+const DATA_RETENTION_DAYS = Math.max(1, Number(process.env.DATA_RETENTION_DAYS || 7));
+const DATA_RETENTION_MS = DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+const RETENTION_SQL = `timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days'`;
 let audioTimestampCutoff = new Date(Date.now() - 5 * 60 * 1000);
 
 function setAudioTimestampCutoff(timestampSeconds) {
@@ -49,7 +50,7 @@ const ALL_ACCOUNTS_KEY = '__all__';
 const REPORT_PROMPT_VERSION = 'daily-report-v14-followup-evidence';
 
 function normalizeReportPeriod(period) {
-  return period === 'last48h' ? 'last48h' : 'today';
+  return ['last48h', 'last7days'].includes(period) ? period : 'today';
 }
 
 function reportRevisionKey(accountId, period) {
@@ -61,7 +62,9 @@ async function bumpDailyReportRevision(client, accountId, date) {
     [reportRevisionKey(accountId, 'today'), date],
     [reportRevisionKey(null, 'today'), date],
     [reportRevisionKey(accountId, 'last48h'), getLocalDateString()],
-    [reportRevisionKey(null, 'last48h'), getLocalDateString()]
+    [reportRevisionKey(null, 'last48h'), getLocalDateString()],
+    [reportRevisionKey(accountId, 'last7days'), getLocalDateString()],
+    [reportRevisionKey(null, 'last7days'), getLocalDateString()]
   ].map(([key, revisionDate]) => `${key}\u0000${revisionDate}`));
   for (const revision of revisions) {
     const [key, revisionDate] = revision.split('\u0000');
@@ -83,8 +86,8 @@ async function getDailyReportRevision(accountId, date, period = 'today') {
 }
 
 async function getCachedDailyReport(accountId, date, sourceVersion, period = 'today', allowSourceChanges = false, allowPromptChanges = false) {
-  const last48h = normalizeReportPeriod(period) === 'last48h';
-  const validity = last48h
+  const isRolling = ['last48h', 'last7days'].includes(normalizeReportPeriod(period));
+  const validity = isRolling
     ? " AND NULLIF(payload->>'cacheValidUntil','') IS NOT NULL AND (payload->>'cacheValidUntil')::timestamptz > NOW()"
     : '';
   const params = [reportRevisionKey(accountId, period), date];
@@ -92,7 +95,7 @@ async function getCachedDailyReport(accountId, date, sourceVersion, period = 'to
   if (!allowSourceChanges) { params.push(sourceVersion); filters += ` AND source_version=$${params.length}`; }
   if (!allowPromptChanges) { params.push(REPORT_PROMPT_VERSION); filters += ` AND prompt_version=$${params.length}`; }
   const result = await getPool().query(
-    `SELECT payload,source_version,prompt_version FROM daily_report_cache WHERE account_key=$1 AND report_date=$2${filters} AND generated_at >= NOW()-INTERVAL '48 hours'${validity}`,
+    `SELECT payload,source_version,prompt_version FROM daily_report_cache WHERE account_key=$1 AND report_date=$2${filters} AND generated_at >= NOW()-INTERVAL '${DATA_RETENTION_DAYS} days'${validity}`,
     params);
   return result.rows[0] ? { ...result.rows[0].payload, _cacheSourceVersion: result.rows[0].source_version,
     _cachePromptVersion: result.rows[0].prompt_version } : null;
@@ -126,9 +129,13 @@ async function close() {
 }
 
 function getReportRange(period = 'today', date = null) {
-  if (normalizeReportPeriod(period) === 'last48h') {
+  if (period === 'last7days') {
     const end = new Date();
     return [new Date(end.getTime() - DATA_RETENTION_MS).toISOString(), end.toISOString()];
+  }
+  if (normalizeReportPeriod(period) === 'last48h') {
+    const end = new Date();
+    return [new Date(end.getTime() - 48 * 60 * 60 * 1000).toISOString(), end.toISOString()];
   }
   let reportDate = date || getLocalDateString();
   if (period === 'yesterday' && !date) {
@@ -198,8 +205,8 @@ async function backfillCustomerContactHistory() {
   const exists = await getPool().query('SELECT EXISTS(SELECT 1 FROM customer_contact_history) AS ready');
   if (exists.rows[0].ready) return;
   const rows = await getPool().query(
-    "SELECT account_id,customer_phone,chat_id,timestamp FROM messages WHERE timestamp >= NOW()-INTERVAL '48 hours' " +
-    "UNION ALL SELECT account_id,customer_phone,chat_id,timestamp FROM audio_messages WHERE timestamp >= NOW()-INTERVAL '48 hours' ORDER BY timestamp");
+    "SELECT account_id,customer_phone,chat_id,timestamp FROM messages WHERE " + RETENTION_SQL + " " +
+    "UNION ALL SELECT account_id,customer_phone,chat_id,timestamp FROM audio_messages WHERE " + RETENTION_SQL + " ORDER BY timestamp");
   if (!rows.rowCount) return;
   const client = await getPool().connect();
   try {
@@ -324,11 +331,11 @@ async function captureAudio(data) {
 
 async function pendingAudioJobs(limit = 100) {
   const r = await getPool().query(
-    "SELECT o.job_id, o.payload FROM audio_job_outbox o JOIN audio_messages a ON a.id=o.audio_id WHERE o.published_at IS NULL AND a.timestamp >= $1 AND a.timestamp >= NOW() - INTERVAL '48 hours' ORDER BY o.created_at LIMIT $2", [audioTimestampCutoff, limit]);
+    "SELECT o.job_id, o.payload FROM audio_job_outbox o JOIN audio_messages a ON a.id=o.audio_id WHERE o.published_at IS NULL AND a.timestamp >= $1 AND a.timestamp >= NOW() - INTERVAL '" + DATA_RETENTION_DAYS + " days' ORDER BY o.created_at LIMIT $2", [audioTimestampCutoff, limit]);
   return r.rows;
 }
 async function publishedAudioJobs(limit = 100) {
-  const r = await getPool().query("SELECT o.job_id,o.audio_id FROM audio_job_outbox o JOIN audio_messages a ON a.id=o.audio_id WHERE o.published_at IS NOT NULL AND o.payload <> '{}'::jsonb AND a.timestamp >= $1 AND a.timestamp >= NOW() - INTERVAL '48 hours' ORDER BY o.created_at LIMIT $2", [audioTimestampCutoff, limit]);
+  const r = await getPool().query("SELECT o.job_id,o.audio_id FROM audio_job_outbox o JOIN audio_messages a ON a.id=o.audio_id WHERE o.published_at IS NOT NULL AND o.payload <> '{}'::jsonb AND a.timestamp >= $1 AND a.timestamp >= NOW() - INTERVAL '" + DATA_RETENTION_DAYS + " days' ORDER BY o.created_at LIMIT $2", [audioTimestampCutoff, limit]);
   return r.rows;
 }
 async function markAudioJobPublished(jobId) {
@@ -617,7 +624,7 @@ async function getMonthlySalesScores(month, accountId = null) {
 }
 
 async function clearTodayMessages(date = null, accountId = null) {
-  const [start, end] = getDateRange(date);
+  const [start, end] = getCairoDateRange(date);
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
@@ -642,17 +649,17 @@ async function purgeExpiredData() {
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
-    const files = await client.query('SELECT id, file_path FROM audio_messages WHERE timestamp < NOW() - INTERVAL \'48 hours\'');
-    const messages = await client.query('DELETE FROM messages WHERE timestamp < NOW() - INTERVAL \'48 hours\' RETURNING account_id,timestamp');
-    const audio = await client.query('DELETE FROM audio_messages WHERE timestamp < NOW() - INTERVAL \'48 hours\' RETURNING account_id,timestamp');
+    const files = await client.query(`SELECT id, file_path FROM audio_messages WHERE timestamp < NOW() - INTERVAL '${DATA_RETENTION_DAYS} days'`);
+    const messages = await client.query(`DELETE FROM messages WHERE timestamp < NOW() - INTERVAL '${DATA_RETENTION_DAYS} days' RETURNING account_id,timestamp`);
+    const audio = await client.query(`DELETE FROM audio_messages WHERE timestamp < NOW() - INTERVAL '${DATA_RETENTION_DAYS} days' RETURNING account_id,timestamp`);
     const touched = new Set([...messages.rows, ...audio.rows].map(row => `${row.account_id}\u0000${getLocalDateString(new Date(row.timestamp))}`));
     for (const item of touched) {
       const [accountId, date] = item.split('\u0000');
       await bumpDailyReportRevision(client, accountId, date);
     }
-    await client.query("DELETE FROM daily_report_cache WHERE generated_at < NOW()-INTERVAL '48 hours' OR report_date <= to_char((NOW()-INTERVAL '48 hours')::date, 'YYYY-MM-DD')");
-    await client.query("DELETE FROM daily_report_revisions WHERE report_date < to_char((NOW()-INTERVAL '72 hours')::date, 'YYYY-MM-DD')");
-    await client.query("DELETE FROM gemini_usage WHERE occurred_at < NOW()-INTERVAL '48 hours'");
+    await client.query(`DELETE FROM daily_report_cache WHERE generated_at < NOW()-INTERVAL '${DATA_RETENTION_DAYS} days' OR report_date <= to_char((NOW()-INTERVAL '${DATA_RETENTION_DAYS} days')::date, 'YYYY-MM-DD')`);
+    await client.query(`DELETE FROM daily_report_revisions WHERE report_date < to_char((NOW()-INTERVAL '${DATA_RETENTION_DAYS + 1} days')::date, 'YYYY-MM-DD')`);
+    await client.query("DELETE FROM gemini_usage WHERE occurred_at < NOW()-INTERVAL '30 days'");
     await client.query('COMMIT');
     return {
       messages: messages.rowCount,
@@ -668,4 +675,4 @@ module.exports = { initialize, close, setAudioTimestampCutoff, saveMessage, capt
   completeAudioJob, markAudioJobForRetry, getAudioJobState, updateAudioFilePath, updateAudioTranscript, getAudioMessages, getCustomerNumbers, getTodayMessages,
   formatMessagesForGemini, buildReportInputManifest, getTodayStats, clearTodayMessages, purgeExpiredData, getLocalDateString,
   getPool, formatPhoneNumber, updateCustomerPhoneForChat, getDailyReportRevision, getCachedDailyReport, storeDailyReportCache,
-  recordGeminiUsage, REPORT_PROMPT_VERSION, getLeadFollowupContacts, saveSalesDailyScores, getMonthlySalesScores };
+  recordGeminiUsage, REPORT_PROMPT_VERSION, getLeadFollowupContacts, saveSalesDailyScores, getMonthlySalesScores, DATA_RETENTION_DAYS, DATA_RETENTION_MS };

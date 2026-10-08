@@ -94,11 +94,42 @@ window.switchView = function(view) {
 reportAccountSelect.addEventListener('change', loadMonthlyScores);
 
 // ===== Account Management =====
+window.toggleScheduleInputs = function() {
+  const enabled = document.getElementById('account-schedule-enabled').checked;
+  const area = document.getElementById('schedule-inputs-area');
+  if (area) area.classList.toggle('disabled', !enabled);
+};
+
+function getScheduleFromModal() {
+  const enabled = document.getElementById('account-schedule-enabled').checked;
+  const start = document.getElementById('account-work-start').value || '10:00';
+  const end = document.getElementById('account-work-end').value || '19:00';
+  const checks = document.querySelectorAll('input[name="work-day-check"]:checked');
+  const workDays = Array.from(checks).map(cb => Number(cb.value));
+  return { enabled, start, end, workDays };
+}
+
+function setScheduleToModal(schedule = null) {
+  const s = schedule || { enabled: true, start: '10:00', end: '19:00', workDays: [6, 0, 1, 2, 3, 4] };
+  const enabledEl = document.getElementById('account-schedule-enabled');
+  if (enabledEl) enabledEl.checked = s.enabled !== false;
+  const startEl = document.getElementById('account-work-start');
+  if (startEl) startEl.value = s.start || '10:00';
+  const endEl = document.getElementById('account-work-end');
+  if (endEl) endEl.value = s.end || '19:00';
+  const workDays = Array.isArray(s.workDays) ? s.workDays.map(Number) : [6, 0, 1, 2, 3, 4];
+  document.querySelectorAll('input[name="work-day-check"]').forEach(cb => {
+    cb.checked = workDays.includes(Number(cb.value));
+  });
+  window.toggleScheduleInputs();
+}
+
 addBtn.addEventListener('click', () => {
   editingAccountId = null;
   modalTitle.innerText = 'إضافة حساب جديد';
   saveBtn.innerText = 'حفظ وإضافة';
   nameInput.value = '';
+  setScheduleToModal(null);
   modal.classList.remove('hidden');
   setTimeout(() => nameInput.focus(), 100);
 });
@@ -115,11 +146,14 @@ saveBtn.addEventListener('click', () => {
     return;
   }
 
+  const schedule = getScheduleFromModal();
+
   if (editingAccountId) {
     // تعديل حساب موجود
     const acc = accounts.find(a => a.id === editingAccountId);
     if (acc) {
       acc.name = name;
+      acc.schedule = schedule;
       const tabNameEl = document.getElementById(`tab-name-${editingAccountId}`);
       if (tabNameEl) tabNameEl.innerText = name;
       
@@ -130,7 +164,7 @@ saveBtn.addEventListener('click', () => {
   } else {
     // إضافة حساب جديد
     const accountId = `account-${Date.now()}`;
-    const newAccount = { id: accountId, name };
+    const newAccount = { id: accountId, name, schedule };
     accounts.push(newAccount);
     createTab(accountId, name);
     createWebview(accountId, name);
@@ -238,9 +272,10 @@ window.editAccount = (event, id) => {
   if (!acc) return;
 
   editingAccountId = id;
-  modalTitle.innerText = 'تعديل اسم الحساب';
+  modalTitle.innerText = 'تعديل اسم ومواعيد عمل الحساب';
   saveBtn.innerText = 'حفظ التعديلات';
   nameInput.value = acc.name;
+  setScheduleToModal(acc.schedule);
   modal.classList.remove('hidden');
   setTimeout(() => nameInput.focus(), 100);
 };
@@ -295,12 +330,14 @@ function addAccountToReportFilter(id, name) {
 
 // ===== Gemini Report Generation =====
 window.generateReport = async function(requestedPeriod = null) {
-  if (requestedPeriod === 'today' || requestedPeriod === 'yesterday' || requestedPeriod === 'last48h') reportPeriod = requestedPeriod;
+  if (['today', 'yesterday', 'last48h', 'last7days'].includes(requestedPeriod)) reportPeriod = requestedPeriod;
   const periodButtons = [...document.querySelectorAll('.period-btn')];
   periodButtons.forEach(button => {
     button.disabled = true;
     const activeButtonId = reportPeriod === 'today' ? 'report-today-btn'
-      : reportPeriod === 'yesterday' ? 'report-yesterday-btn' : 'report-last48-btn';
+      : reportPeriod === 'yesterday' ? 'report-yesterday-btn'
+      : reportPeriod === 'last7days' ? 'report-last7days-btn'
+      : 'report-last48-btn';
     button.classList.toggle('active', button.id === activeButtonId);
   });
   const reportEmpty = document.getElementById('report-empty');
@@ -319,7 +356,8 @@ window.generateReport = async function(requestedPeriod = null) {
   const loadingMessages = [
     reportPeriod === 'today' ? 'يقرأ محادثات اليوم منذ منتصف الليل...'
       : reportPeriod === 'yesterday' ? 'يقرأ تقرير ورسائل أمس المحفوظة...'
-        : 'يجمع المحادثات من آخر 48 ساعة...',
+      : reportPeriod === 'last7days' ? 'يجمع المحادثات من آخر 7 أيام...'
+      : 'يجمع المحادثات من آخر 48 ساعة...',
     'يحلل أسلوب التواصل والمبيعات...',
     'يكتشف الفرص الضائعة...',
     'يرتب التوصيات حسب الأولوية...',
@@ -363,7 +401,7 @@ function displayReport(result) {
   const formattedReport = formatMarkdown(result.report);
   const countSummary = `<div class="lead-followup-counts" dir="rtl"><span>ليدات جديدة: <b>${Number(result.leadCount) || 0}</b></span><span>فولو أب: <b>${Number(result.followupCount) || 0}</b></span></div>`;
   const stats = result.currentStats || {};
-  const periodLabel = stats.period === 'last48h' ? 'آخر 48 ساعة' : stats.period === 'yesterday' ? 'أمس' : 'اليوم';
+  const periodLabel = stats.period === 'last7days' ? 'آخر 7 أيام' : stats.period === 'last48h' ? 'آخر 48 ساعة' : stats.period === 'yesterday' ? 'أمس' : 'اليوم';
   const summaryStats = `<section class="report-current-stats" dir="rtl"><h3>الإحصائيات الحالية — ${periodLabel}</h3><div class="report-current-stats-grid"><span>المحادثات <b>${Number(stats.chats) || 0}</b></span><span>الرسائل <b>${Number(stats.total_messages) || 0}</b></span><span>رسائل السيلز <b>${Number(stats.sales_messages) || 0}</b></span><span>رسائل العملاء <b>${Number(stats.customer_messages) || 0}</b></span></div></section>`;
   const updateNote = result.incrementalUpdate
     ? '<p class="report-update-note" dir="rtl">تم إلحاق تحليل الرسائل الجديدة بنهاية التقرير. أوقات الرسائل المعروضة أدناه محسوبة من سجلات قاعدة البيانات الحالية؛ أما متن التحليل المحفوظ فيحتفظ بتوقيته وقت إنشائه. الدرجة داخل المتن هي الدرجة الأصلية، بينما يعرض جدول التطور الشهري أحدث درجة بعد تحليل الرسائل الجديدة.</p>'
@@ -420,7 +458,7 @@ function renderResponseMetrics(metrics) {
   heading.textContent = 'إحصائيات متابعة محسوبة من قاعدة البيانات';
   const note = document.createElement('p');
   note.className = 'response-metrics-note';
-  note.textContent = 'متوسط ووسيط سرعة الرد مبنيان على أدوار الرسائل النصية والصوتية التي بدأها العميل وانتهت برد من السيلز. أول رد هو أول رد مرصود لكل محادثة في الفترة، وليس أول تواصل على الإطلاق. الانتظار الحالي مرصود ضمن آخر 48 ساعة فقط؛ الرمز ≥ يعني أن بدايته قد تسبق البيانات المتاحة.';
+  note.textContent = 'متوسط ووسيط سرعة الرد مبنيان على أدوار الرسائل النصية والصوتية التي بدأها العميل وانتهت برد من السيلز. أول رد هو أول رد مرصود لكل محادثة في الفترة، وليس أول تواصل على الإطلاق. الانتظار الحالي مرصود ضمن الفترة المتاحة؛ الرمز ≥ يعني أن بدايته قد تسبق البيانات المتاحة.';
   section.append(heading, note);
 
   const table = document.createElement('table');
@@ -479,7 +517,7 @@ function formatResponseMetricsText(metrics = {}) {
     const metric = value => `متوسط ${formatDuration(value.averageSeconds)}؛ وسيط ${formatDuration(value.medianSeconds)}؛ العدد ${value.count}`;
     return `الحساب: ${account.accountName || 'غير معروف'}\nأول رد مرصود: ${metric(account.firstReply)}\nالردود المتكررة: ${metric(account.repeatedReplies)}\nمحادثات تنتظر رد السيلز: ${account.pendingSalesReplyCount}\nأقدم انتظار: ${formatDuration(account.oldestPendingSeconds, account.oldestPendingIsLowerBound)}`;
   });
-  return `\n\nإحصائيات متابعة محسوبة من قاعدة البيانات\n${rows.join('\n\n')}\nملاحظة: الانتظار مرصود من آخر 48 ساعة فقط، و≥ تعني أن البداية قد تسبق البيانات المتاحة.`;
+  return `\n\nإحصائيات متابعة محسوبة من قاعدة البيانات\n${rows.join('\n\n')}\nملاحظة: الانتظار مرصود من الفترة المتاحة، و≥ تعني أن البداية قد تسبق البيانات المتاحة.`;
 }
 
 function formatEvidenceCoverageText(evidenceByAccount = {}) {
@@ -696,7 +734,7 @@ async function loadMonthlyScores() {
 function renderMonthlyScores(scores = []) {
   const body = document.getElementById('monthly-scores-body');
   if (!body) return;
-  if (latestEvidenceGate && latestEvidenceGate.period !== 'last48h') {
+  if (latestEvidenceGate && !['last48h', 'last7days'].includes(latestEvidenceGate.period)) {
     const insufficientAccountIds = new Set(Object.values(latestEvidenceGate.evidenceByAccount)
       .filter(account => account.status === 'insufficient').map(account => account.accountId));
     scores = scores.filter(row => !(insufficientAccountIds.has(row.account_id) && String(row.score_date).slice(0, 10) === latestEvidenceGate.date));
@@ -943,6 +981,80 @@ document.addEventListener('keydown', (e) => {
     window.openWebviewDevTools();
   }
 });
+
+// ===== Settings Modal (Excluded numbers) =====
+window.openSettingsModal = async function() {
+  const modal = document.getElementById('settings-modal');
+  const textarea = document.getElementById('excluded-phones-input');
+  try {
+    const s = await ipcRenderer.invoke('load-settings');
+    const phones = Array.isArray(s.excludedPhones) ? s.excludedPhones : [];
+    textarea.value = phones.join('\n');
+  } catch (e) {
+    textarea.value = '';
+  }
+  modal.classList.remove('hidden');
+};
+
+window.closeSettingsModal = function() {
+  document.getElementById('settings-modal').classList.add('hidden');
+};
+
+window.saveInternalSettings = async function() {
+  const textarea = document.getElementById('excluded-phones-input');
+  const raw = textarea.value.split(/[\n,;]+/).map(p => p.trim()).filter(Boolean);
+  try {
+    await ipcRenderer.invoke('save-settings', { excludedPhones: raw });
+    showToast('تم حفظ أرقام الفريق المستبعدة بنجاح', 'success');
+    closeSettingsModal();
+  } catch (e) {
+    showToast('فشل حفظ الإعدادات: ' + e.message, 'error');
+  }
+};
+
+// ===== Report Print & CSV Export =====
+window.printReport = function() {
+  if (!reportData) {
+    showToast('لا يوجد تقرير لطباعته، يرجى استخراج التقرير أولاً', 'error');
+    return;
+  }
+  window.print();
+};
+
+window.exportCsvLeads = function() {
+  if (!reportData) {
+    showToast('يرجى استخراج التقرير أولاً لتصدير البيانات', 'error');
+    return;
+  }
+  const date = reportData.date || new Date().toISOString().slice(0, 10);
+  const scores = reportData.scores || [];
+  const stats = reportData.currentStats || {};
+  
+  let csvContent = '\uFEFF'; // BOM UTF-8 for Excel Arabic support
+  csvContent += 'الحساب,إجمالي الرسائل,رسائل السيلز,رسائل العملاء,المحادثات,التقييم,أهم فرصة تطوير\n';
+  
+  for (const score of scores) {
+    const accStats = (stats.perAccount && stats.perAccount[score.accountId]) || {};
+    const totalMsgs = accStats.totalMessages || 0;
+    const salesMsgs = accStats.salesMessages || 0;
+    const custMsgs = accStats.customerMessages || 0;
+    const chats = accStats.chats || 0;
+    const overall = score.overallScore ?? '—';
+    const improvement = (score.improvement || '—').replace(/[\r\n",]+/g, ' ');
+    csvContent += `"${score.accountName || ''}",${totalMsgs},${salesMsgs},${custMsgs},${chats},"${overall}","${improvement}"\n`;
+  }
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', `whatsi_sales_report_${date}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  showToast('تم تصدير ملف Excel بنجاح', 'success');
+};
 
 // ===== Run =====
 init();

@@ -12,12 +12,13 @@ const { app, BrowserWindow, ipcMain, session, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { Queue, Worker } = require('bullmq');
-const { formatCairoTime, formatCairoDateTime, getCairoDateRange } = require('./timezone');
+const { formatCairoTime, formatCairoDateTime, getCairoDateRange, calculateBusinessSeconds, isConcludingCustomerMessage } = require('./timezone');
 
 // تحميل متغيرات البيئة من .env
 require('dotenv').config({ path: path.join(__dirname, '.env') });
-const appStartTime = Math.floor(Date.now() / 1000);
-const audioTimestampCutoff = appStartTime - 300;
+const DATA_RETENTION_DAYS = Math.max(1, Number(process.env.DATA_RETENTION_DAYS || 7));
+const DATA_RETENTION_MS = DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+const audioTimestampCutoff = Math.floor((Date.now() - DATA_RETENTION_MS) / 1000);
 
 // ===== إعدادات محرك Chromium لمنع رسائل الكاش غير المؤثرة في التيرمينال =====
 app.commandLine.appendSwitch('log-level', '3'); // إخفاء رسائل Chromium C++ الداخلية
@@ -280,7 +281,6 @@ ipcMain.on('preload-heartbeat', (event, data) => {
 
 // مجلد حفظ ملفات الصوت
 const AUDIO_DIR = path.join(app.getPath('userData'), 'audio_messages');
-const DATA_RETENTION_MS = 48 * 60 * 60 * 1000;
 
 function deleteAudioFiles(audioFiles = []) {
   const audioDirectory = path.resolve(AUDIO_DIR);
@@ -612,7 +612,7 @@ function buildCurrentMessageTimes(messages, audioRows) {
   }));
 }
 
-function buildResponseMetrics(messages, audioRows, { periodStart, periodEnd, now = Date.now() }) {
+function buildResponseMetrics(messages, audioRows, { periodStart, periodEnd, now = Date.now(), observationHours = 48, schedules = new Map() }) {
   const events = [
     ...messages.map(row => ({ ...row, source: 'text' })),
     ...audioRows.map(row => ({ ...row, source: 'audio' }))
@@ -637,6 +637,7 @@ function buildResponseMetrics(messages, audioRows, { periodStart, periodEnd, now
   const isInPeriod = timestamp => timestamp >= periodStart && timestamp < periodEnd;
   for (const conversation of conversations.values()) {
     const account = ensure(conversation.accountId, conversation.accountName);
+    const accountSchedule = schedules.get(conversation.accountId) || { enabled: false };
     conversation.events.sort((a, b) => a.milliseconds - b.milliseconds);
     let waitingSince = null;
     let pendingStartIsLowerBound = false;
@@ -648,7 +649,8 @@ function buildResponseMetrics(messages, audioRows, { periodStart, periodEnd, now
           pendingStartIsLowerBound = conversation.events[0] === event;
         }
       } else if (waitingSince !== null) {
-        const seconds = Math.max(0, Math.round((event.milliseconds - waitingSince) / 1000));
+        // حساب مدة الرد خلال ساعات العمل المخصصة لهذا الحساب
+        const seconds = calculateBusinessSeconds(waitingSince, event.milliseconds, accountSchedule);
         if (isInPeriod(waitingSince) && event.milliseconds <= periodEnd) {
           const entry = { seconds, accountId: conversation.accountId };
           (answeredTurnsInPeriod++ === 0 ? account.firstReplies : account.repeatReplies).push(entry);
@@ -658,8 +660,12 @@ function buildResponseMetrics(messages, audioRows, { periodStart, periodEnd, now
       }
     }
     if (waitingSince !== null && conversation.events.at(-1)?.sender === 'customer') {
-      const waitSeconds = Math.max(0, Math.floor((now - waitingSince) / 1000));
-      account.pending.push({ seconds: waitSeconds, lowerBound: pendingStartIsLowerBound });
+      const lastMsg = conversation.events.at(-1);
+      // إذا كانت آخر رسالة مجرد تحية/شكر ختامي فلا تحسب كدور انتظار معلق
+      if (!isConcludingCustomerMessage(lastMsg.text)) {
+        const waitSeconds = calculateBusinessSeconds(waitingSince, now, accountSchedule);
+        account.pending.push({ seconds: waitSeconds, lowerBound: pendingStartIsLowerBound });
+      }
     }
   }
 
@@ -685,7 +691,7 @@ function buildResponseMetrics(messages, audioRows, { periodStart, periodEnd, now
     all.repeatReplies.push(...account.repeatReplies);
     all.pending.push(...account.pending);
   }
-  return { observationHours: 48, perAccount, total: serialize(all) };
+  return { observationHours, perAccount, total: serialize(all) };
 }
 
 function buildEvidenceByAccount(dateStats, messages, audioRows) {
@@ -735,14 +741,16 @@ function applyEvidenceGate(reportText, scores, evidenceByAccount) {
 /** Generate a report once, then send only new/changed message events to Gemini. */
 async function generateDailyReportInternal({ accountId, period, allowEmpty = false } = {}) {
   if (!db) return { success: false, error: 'قاعدة البيانات غير متاحة' };
-  period = ['today', 'yesterday', 'last48h'].includes(period) ? period : 'today';
+  period = ['today', 'yesterday', 'last48h', 'last7days'].includes(period) ? period : 'today';
   const cairoToday = db.getLocalDateString();
   const selectedDate = period === 'yesterday' ? shiftDateByDays(cairoToday, -1) : cairoToday;
   const reportDate = period === 'today'
     ? selectedDate.split('-').reverse().join('/')
     : period === 'yesterday'
       ? `أمس (${selectedDate.split('-').reverse().join('/')})`
-      : `آخر 48 ساعة حتى ${formatCairoDateTime()}`;
+      : period === 'last7days'
+        ? `آخر 7 أيام حتى ${formatCairoDateTime()}`
+        : `آخر 48 ساعة حتى ${formatCairoDateTime()}`;
   const cutoffDate = db.getLocalDateString(new Date(Date.now() - DATA_RETENTION_MS));
   const cacheableDate = selectedDate > cutoffDate;
   const sourceVersion = await db.getDailyReportRevision(accountId || null, selectedDate, period);
@@ -750,25 +758,44 @@ async function generateDailyReportInternal({ accountId, period, allowEmpty = fal
     ? await db.getCachedDailyReport(accountId || null, selectedDate, sourceVersion, period, true, true)
     : null;
 
+  const metricsPeriod = ['last7days', 'last48h'].includes(period) ? period : 'last48h';
   const [messages, audioRows, dateStats, contacts, recentMessages, recentAudioRows] = await Promise.all([
     db.getTodayMessages(accountId || null, selectedDate, period),
     db.getAudioMessages(accountId || null, selectedDate, period),
     db.getTodayStats(selectedDate, accountId || null, period),
     db.getLeadFollowupContacts(accountId || null, selectedDate, period),
-    db.getTodayMessages(accountId || null, null, 'last48h'),
-    db.getAudioMessages(accountId || null, null, 'last48h')
+    db.getTodayMessages(accountId || null, null, metricsPeriod),
+    db.getAudioMessages(accountId || null, null, metricsPeriod)
   ]);
   const now = Date.now();
-  const [periodStartIso, periodEndIso] = period === 'last48h'
-    ? [new Date(now - 48 * 60 * 60 * 1000).toISOString(), new Date(now).toISOString()]
-    : getCairoDateRange(selectedDate);
+  const [periodStartIso, periodEndIso] = period === 'last7days'
+    ? [new Date(now - DATA_RETENTION_MS).toISOString(), new Date(now).toISOString()]
+    : period === 'last48h'
+      ? [new Date(now - 48 * 60 * 60 * 1000).toISOString(), new Date(now).toISOString()]
+      : getCairoDateRange(selectedDate);
   const periodStart = Date.parse(periodStartIso);
   const periodEnd = Math.min(Date.parse(periodEndIso), now);
-  const responseMetrics = buildResponseMetrics(recentMessages, recentAudioRows, {
-    periodStart, periodEnd, now
+  const schedules = getAccountScheduleMap();
+  const excludedPhones = getExcludedPhonesNormalized();
+  const isExcluded = row => {
+    if (!excludedPhones.size) return false;
+    const pDigits = String(row.customer_phone || '').replace(/\D/g, '');
+    if (pDigits && excludedPhones.has(pDigits)) return true;
+    const cDigits = String(row.chat_id || '').split('@')[0].replace(/\D/g, '');
+    if (cDigits && excludedPhones.has(cDigits)) return true;
+    return false;
+  };
+
+  const validMessages = messages.filter(m => !isExcluded(m));
+  const validAudioRows = audioRows.filter(a => !isExcluded(a));
+  const validRecentMessages = recentMessages.filter(m => !isExcluded(m));
+  const validRecentAudioRows = recentAudioRows.filter(a => !isExcluded(a));
+
+  const responseMetrics = buildResponseMetrics(validRecentMessages, validRecentAudioRows, {
+    periodStart, periodEnd, now, observationHours, schedules
   });
-  const evidenceByAccount = buildEvidenceByAccount(dateStats, messages, audioRows);
-  const manifest = db.buildReportInputManifest(messages, audioRows);
+  const evidenceByAccount = buildEvidenceByAccount(dateStats, validMessages, validAudioRows);
+  const manifest = db.buildReportInputManifest(validMessages, validAudioRows);
   // If a report from the previous format matches the exact same database
   // revision, adopt it without paying for a second full analysis. Otherwise
   // its coverage is unknown, so build a fresh report instead of guessing.
@@ -865,7 +892,7 @@ async function generateDailyReportInternal({ accountId, period, allowEmpty = fal
     report.followupCount = contacts.followupCount;
     report.currentStats = currentStats;
     report.processedManifest = manifest;
-    if (period !== 'last48h' && Array.isArray(report.scores) && report.scores.length) {
+    if (!['last48h', 'last7days'].includes(period) && Array.isArray(report.scores) && report.scores.length) {
       const leadCounts = {}, followupCounts = {};
       for (const contact of contacts.leads) leadCounts[contact.accountId] = (leadCounts[contact.accountId] || 0) + 1;
       for (const contact of contacts.followups) followupCounts[contact.accountId] = (followupCounts[contact.accountId] || 0) + 1;
@@ -874,7 +901,7 @@ async function generateDailyReportInternal({ accountId, period, allowEmpty = fal
       await db.saveSalesDailyScores(reliableScores, { date: selectedDate, leadCounts, followupCounts, conversationCounts });
     }
     report.monthlyScores = await db.getMonthlySalesScores(selectedDate.slice(0, 7), accountId || null);
-    if (period === 'last48h') {
+    if (['last48h', 'last7days'].includes(period)) {
       const timestamps = [...messages.map(row => row.timestamp), ...audioRows.map(row => row.timestamp)].map(value => new Date(value).getTime()).filter(Number.isFinite);
       if (timestamps.length) report.cacheValidUntil = new Date(timestamps.reduce((earliest, value) => Math.min(earliest, value), Infinity) + DATA_RETENTION_MS).toISOString();
     }
@@ -886,7 +913,7 @@ async function generateDailyReportInternal({ accountId, period, allowEmpty = fal
 
 async function generateDailyReport(request = {}) {
   if (!db) return generateDailyReportInternal(request);
-  const period = ['today', 'yesterday', 'last48h'].includes(request.period) ? request.period : 'today';
+  const period = ['today', 'yesterday', 'last48h', 'last7days'].includes(request.period) ? request.period : 'today';
   const today = db.getLocalDateString();
   const reportDate = period === 'yesterday' ? shiftDateByDays(today, -1) : today;
   const lockKey = `${request.accountId || '__all__'}::${period}::${reportDate}`;
@@ -916,6 +943,57 @@ function readConfiguredSalesAccounts() {
     console.error('[Daily Reports] Could not read configured accounts:', error.message);
     return [];
   }
+}
+
+function getSettingsFilePath() {
+  return path.join(app.getPath('userData'), 'settings.json');
+}
+
+function loadSettings() {
+  try {
+    const p = getSettingsFilePath();
+    if (!fs.existsSync(p)) return { excludedPhones: [] };
+    return JSON.parse(fs.readFileSync(p, 'utf-8'));
+  } catch (e) {
+    return { excludedPhones: [] };
+  }
+}
+
+function saveSettings(settings) {
+  try {
+    const p = getSettingsFilePath();
+    fs.writeFileSync(p, JSON.stringify(settings, null, 2), 'utf-8');
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function getExcludedPhonesNormalized() {
+  const s = loadSettings();
+  const list = Array.isArray(s.excludedPhones) ? s.excludedPhones : [];
+  const set = new Set();
+  for (const item of list) {
+    const digits = String(item || '').replace(/\D/g, '');
+    if (digits) {
+      set.add(digits);
+      if (/^01[0125]\d{8}$/.test(digits)) set.add('20' + digits.slice(1));
+      if (/^1[0125]\d{8}$/.test(digits)) set.add('20' + digits);
+      if (digits.startsWith('20') && digits.length === 12) set.add('0' + digits.slice(2));
+    }
+  }
+  return set;
+}
+
+function getAccountScheduleMap() {
+  const accounts = readConfiguredSalesAccounts();
+  const map = new Map();
+  for (const acc of accounts) {
+    if (acc && acc.id) {
+      map.set(acc.id, acc.schedule || { enabled: true, start: '09:00', end: '18:00', workDays: [0, 1, 2, 3, 4, 6] });
+    }
+  }
+  return map;
 }
 
 async function runAutomaticPreviousDayReports() {
@@ -968,7 +1046,7 @@ ipcMain.handle('get-monthly-sales-scores', async (_event, { month, accountId } =
  */
 ipcMain.handle('debug-customer-names', async () => {
   if (!db) return [];
-  const result = await db.getPool().query("SELECT DISTINCT customer_name FROM messages WHERE timestamp >= NOW() - INTERVAL '48 hours' LIMIT 30");
+  const result = await db.getPool().query(`SELECT DISTINCT customer_name FROM messages WHERE timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days' LIMIT 30`);
   return result.rows;
 });
 
@@ -1037,6 +1115,9 @@ ipcMain.handle('save-accounts', async (event, accounts) => {
     return { success: false, error: err.message };
   }
 });
+
+ipcMain.handle('load-settings', async () => loadSettings());
+ipcMain.handle('save-settings', async (_event, settings) => saveSettings(settings));
 
 // ===== App Lifecycle =====
 

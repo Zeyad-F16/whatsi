@@ -1632,3 +1632,197 @@ webview.active {
   color: #74b9ff;
 }
 
+/* Schedule Config & Settings Modal Styles */
+.modal-medium {
+  width: 90%;
+  max-width: 580px;
+}
+
+.modal-intro {
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.6;
+  margin-bottom: 14px;
+}
+
+.modal-textarea {
+  width: 100%;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  padding: 10px 12px;
+  font-family: monospace;
+  font-size: 0.9rem;
+  resize: vertical;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.modal-textarea:focus {
+  outline: none;
+  border-color: var(--accent-teal);
+}
+
+.schedule-config-box {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.schedule-toggle-row {
+  margin-bottom: 12px;
+}
+
+.toggle-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.toggle-checkbox-label input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--accent-teal);
+  cursor: pointer;
+}
+
+.schedule-inputs-area {
+  transition: opacity 0.2s ease;
+}
+
+.schedule-inputs-area.disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.schedule-times-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.time-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.input-sublabel {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.time-input {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  direction: ltr;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.time-input:focus {
+  outline: none;
+  border-color: var(--accent-teal);
+}
+
+.days-selector-group {
+  margin-bottom: 10px;
+}
+
+.work-days-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.day-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-medium);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+}
+
+.day-chip:has(input:checked) {
+  border-color: var(--accent-teal);
+  background: rgba(0, 168, 132, 0.15);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.day-chip input[type="checkbox"] {
+  accent-color: var(--accent-teal);
+  cursor: pointer;
+}
+
+/* Print and Export Buttons */
+.action-btn.print-btn {
+  background: rgba(91, 141, 239, 0.15);
+  border: 1px solid rgba(91, 141, 239, 0.4);
+  color: #8bb9ff;
+}
+
+.action-btn.print-btn:hover {
+  background: rgba(91, 141, 239, 0.28);
+}
+
+.action-btn.export-btn {
+  background: rgba(0, 210, 106, 0.15);
+  border: 1px solid rgba(0, 210, 106, 0.4);
+  color: #6ce6a4;
+}
+
+.action-btn.export-btn:hover {
+  background: rgba(0, 210, 106, 0.28);
+}
+
+/* Print Media Styles */
+@media print {
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .sidebar, .report-toolbar, .report-actions, .report-period-actions, .report-account-filter, .monthly-scores-panel, .toast-container, .modal {
+    display: none !important;
+  }
+  .app-container, .main-content, .view, .report-view, .report-content-area, .report-output {
+    display: block !important;
+    position: static !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+  .report-text {
+    color: #111 !important;
+  }
+  .report-table, .response-metrics-table {
+    border-collapse: collapse !important;
+  }
+  .report-table th, .report-table td, .response-metrics-table th, .response-metrics-table td {
+    border: 1px solid #ccc !important;
+    color: #111 !important;
+  }
+}
+

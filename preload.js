@@ -12,7 +12,7 @@
  */
 
 const { ipcRenderer } = require('electron');
-const DATA_RETENTION_MS = 48 * 60 * 60 * 1000;
+const DATA_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 // Keep the preload self-contained: sandboxed Electron preloads only support a
 // small allowlist of require() modules and cannot load local CommonJS files.
@@ -45,7 +45,7 @@ function isWithinDataRetention(timestampSeconds) {
 // ─── معلومات الحساب ──────────────────────────────────────────────────────────
 let accountId   = null;
 let accountName = null;
-let audioTimestampCutoffSeconds = Math.floor(Date.now() / 1000) - 300;
+let audioTimestampCutoffSeconds = Math.floor((Date.now() - DATA_RETENTION_MS) / 1000);
 let captureHookStatus = 'waiting-account-info';
 let dispatchedMessageCount = 0;
 let dispatchedAudioCount = 0;
@@ -95,8 +95,12 @@ window.__whatsiSetAccount = (id, name, cutoffSeconds) => {
 function formatPhoneNumber(raw) {
   if (!raw) return 'عميل';
 
-  // إزالة أي شيء غير أرقام
-  const digits = raw.replace(/\D/g, '');
+  // تحويل الأرقام العربية إلى إنجليزية قبل الاستخراج
+  const western = String(raw).replace(/[٠-٩۰-۹]/g, digit => {
+    const code = digit.charCodeAt(0);
+    return String(code >= 0x06f0 ? code - 0x06f0 : code - 0x0660);
+  });
+  const digits = western.replace(/\D/g, '');
   if (digits.length < 7) return raw;
 
   // رقم مصري محلي: 01012345678 أو 1012345678 → الصيغة الدولية +20.
@@ -412,7 +416,7 @@ async function recoverRecentMessages(collection = hookedMsgCollection) {
         await Promise.all(recent.slice(index, index + 20)
           .map(model => onMsgModel(model, { allowRemoteLookup: false, startupBackfill: true })));
       }
-      console.log(`[Whatsi] Recovered ${recent.length} in-memory messages from the last 48 hours.`);
+      console.log(`[Whatsi] Recovered ${recent.length} in-memory messages from the last 7 days.`);
     } while (messageRecoveryRequested && collection === hookedMsgCollection);
   } catch (error) {
     console.error('[Whatsi] Recent-message recovery failed:', error?.message || error);
