@@ -302,6 +302,72 @@ window.deleteAccount = (event, id) => {
   }
 };
 
+const dayNamesArabic = {
+  6: 'السبت',
+  0: 'الأحد',
+  1: 'الإثنين',
+  2: 'الثلاثاء',
+  3: 'الأربعاء',
+  4: 'الخميس',
+  5: 'الجمعة'
+};
+
+window.openCurrentAccountSchedule = function() {
+  const selectedId = reportAccountSelect.value;
+  if (selectedId) {
+    const fakeEvent = { stopPropagation: () => {} };
+    editAccount(fakeEvent, selectedId);
+  } else {
+    openWorkSchedulesModal();
+  }
+};
+
+window.openWorkSchedulesModal = function() {
+  const modalEl = document.getElementById('schedules-modal');
+  const container = document.getElementById('schedules-accounts-list');
+  if (!modalEl || !container) return;
+
+  container.innerHTML = '';
+  if (!accounts || accounts.length === 0) {
+    container.innerHTML = '<p class="modal-intro" style="text-align:center; padding: 20px;">لا توجد حسابات مبيعات مسجلة حالياً.</p>';
+  } else {
+    for (const acc of accounts) {
+      const schedule = acc.schedule || { enabled: true, start: '10:00', end: '19:00', workDays: [6, 0, 1, 2, 3, 4] };
+      const card = document.createElement('div');
+      card.className = 'schedule-account-card';
+      const initial = (acc.name || '').charAt(0).toUpperCase() || 'ح';
+      
+      const daysText = Array.isArray(schedule.workDays) && schedule.workDays.length > 0
+        ? schedule.workDays.map(d => dayNamesArabic[d] || d).join('، ')
+        : 'طوال الأسبوع';
+
+      const hoursText = schedule.enabled !== false
+        ? `من ${schedule.start || '10:00'} إلى ${schedule.end || '19:00'}`
+        : 'غير محدد (متاح دائماً)';
+
+      card.innerHTML = `
+        <div class="schedule-card-info">
+          <div class="schedule-card-avatar">${initial}</div>
+          <div class="schedule-card-details">
+            <span class="schedule-card-name">${acc.name || 'موظف'}</span>
+            <span class="schedule-card-hours">⏰ ${hoursText}</span>
+            <span class="schedule-card-days">📅 أيام العمل: ${daysText}</span>
+          </div>
+        </div>
+        <button class="schedule-card-btn" onclick="closeWorkSchedulesModal(); editAccount(event, '${acc.id}')">✏️ تعديل المواعيد</button>
+      `;
+      container.appendChild(card);
+    }
+  }
+
+  modalEl.classList.remove('hidden');
+};
+
+window.closeWorkSchedulesModal = function() {
+  const modalEl = document.getElementById('schedules-modal');
+  if (modalEl) modalEl.classList.add('hidden');
+};
+
 // ===== Switch To Account =====
 let activeAccountId = null;
 

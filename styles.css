@@ -627,6 +627,28 @@ webview.active {
   border-color: var(--accent-teal);
 }
 
+.account-schedule-btn {
+  background: rgba(0, 168, 132, 0.12);
+  border: 1px solid rgba(0, 168, 132, 0.4);
+  color: var(--accent-teal);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-main);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.account-schedule-btn:hover {
+  background: var(--accent-teal);
+  color: #fff;
+}
+
 .report-period-actions {
   display: inline-flex;
   align-items: center;
@@ -1775,6 +1797,95 @@ webview.active {
   accent-color: var(--accent-teal);
   cursor: pointer;
 }
+
+/* Schedules Overview Modal Styles */
+.schedules-accounts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.schedule-account-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  transition: border-color 0.2s;
+}
+
+.schedule-account-card:hover {
+  border-color: var(--accent-teal);
+}
+
+.schedule-card-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.schedule-card-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--gradient-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.schedule-card-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.schedule-card-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.schedule-card-hours {
+  color: var(--accent-teal);
+  font-size: 0.82rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.schedule-card-days {
+  color: var(--text-dim);
+  font-size: 0.76rem;
+}
+
+.schedule-card-btn {
+  background: rgba(0, 168, 132, 0.15);
+  border: 1px solid var(--accent-teal);
+  color: var(--accent-teal);
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.schedule-card-btn:hover {
+  background: var(--accent-teal);
+  color: #fff;
+}
+
 
 /* Print and Export Buttons */
 .action-btn.print-btn {

@@ -88,6 +88,9 @@
                 <select id="report-account">
                   <option value="">كل الحسابات</option>
                 </select>
+                <button type="button" class="account-schedule-btn" id="edit-current-account-schedule-btn" onclick="openCurrentAccountSchedule()" title="تحديد مواعيد وساعات عمل الموظف">
+                  <span>⏰ مواعيد العمل</span>
+                </button>
               </div>
               <div class="report-period-actions" role="group" aria-label="فترة التقرير">
                 <button class="period-btn active" id="report-today-btn" onclick="generateReport('today')">تقرير اليوم</button>
@@ -100,6 +103,10 @@
 
           <!-- Report Quick Toolbar -->
           <div class="report-toolbar">
+            <button class="toolbar-btn" onclick="openWorkSchedulesModal()" title="تحديد مواعيد وساعات عمل الموظفين المحددة">
+              <span class="tb-icon">⏰</span>
+              <span>مواعيد وساعات العمل</span>
+            </button>
             <button class="toolbar-btn" onclick="testGeminiConnection()" title="فحص مفتاح وصلاحية Gemini API">
               <span class="tb-icon">⚡</span>
               <span>فحص اتصال Gemini</span>
@@ -244,6 +251,27 @@
       <div class="modal-footer">
         <button id="cancel-name-btn" class="modal-btn cancel" onclick="closeModal()">إلغاء</button>
         <button id="save-name-btn" class="modal-btn save">حفظ وإضافة</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Work Schedules Overview Modal -->
+  <div id="schedules-modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeWorkSchedulesModal()"></div>
+    <div class="modal-content modal-medium">
+      <div class="modal-header">
+        <h3 id="schedules-modal-title">⏰ مواعيد وساعات عمل موظفي المبيعات</h3>
+        <button class="modal-close" onclick="closeWorkSchedulesModal()">✕</button>
+      </div>
+      <div class="modal-body modal-scrollable">
+        <p class="modal-intro">حدد لكل موظف مبيعات ساعات عمله المحددة (مثلاً من 10 ص إلى 7 م) وأيام عمله لتفادي احتساب ساعات الليل والإجازات كتأخير في الرد.</p>
+        <div id="schedules-accounts-list" class="schedules-accounts-list">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn cancel" onclick="closeWorkSchedulesModal()">إغلاق</button>
+        <button class="modal-btn save" onclick="closeWorkSchedulesModal(); document.getElementById('add-account-btn').click();">➕ إضافة موظف جديد</button>
       </div>
     </div>
   </div>
