@@ -105,9 +105,11 @@ function populateAccountDropdowns() {
   }
 }
 
-// ===== 3. WhatsApp Chats List =====
 window.filterChatsByAccount = function() {
   loadChatsList();
+  if (activeChatId) {
+    reloadCurrentChatMessages();
+  }
 };
 
 window.handleChatSearch = function(e) {
@@ -162,7 +164,6 @@ function renderChatsList(items) {
             <span class="wa-chat-snippet" id="wa-chat-snippet-${escapeAttr(chat.chatId)}">
               ${senderIcon}${prefix}${escapeHtml(chat.lastMessage || 'بدون رسالة')}
             </span>
-            <span class="wa-chat-badge" style="${chat.messageCount ? '' : 'display:none;'}">${chat.messageCount}</span>
           </div>
         </div>
       </div>
@@ -198,7 +199,9 @@ window.reloadCurrentChatMessages = async function() {
   waChatMessagesScroll.innerHTML = '<div style="padding: 20px; text-align: center; color: #8696a0;">جاري تحميل الرسائل والتسجيلات...</div>';
 
   try {
-    const res = await fetch(`/api/chat-messages?chatId=${encodeURIComponent(activeChatId)}`);
+    const accountId = waFilterAccount ? waFilterAccount.value : '';
+    const url = `/api/chat-messages?chatId=${encodeURIComponent(activeChatId)}${accountId ? `&accountId=${encodeURIComponent(accountId)}` : ''}`;
+    const res = await fetch(url);
     const data = await res.json();
     if (data.success && Array.isArray(data.messages)) {
       renderChatMessages(data.messages);
@@ -212,11 +215,28 @@ window.reloadCurrentChatMessages = async function() {
 function renderChatMessages(messages) {
   if (!waChatMessagesScroll) return;
   if (!messages.length) {
-    waChatMessagesScroll.innerHTML = '<div style="padding: 30px; text-align: center; color: #8696a0;">لا توجد رسائل مسجلة لهذا العميل.</div>';
+    waChatMessagesScroll.innerHTML = '<div style="padding: 30px; text-align: center; color: #8696a0;">لا توجد رسائل مسجلة لهذا العميل تحت الفلتر المختار.</div>';
     return;
   }
 
-  waChatMessagesScroll.innerHTML = messages.map(msg => renderSingleMessageBubble(msg)).join('');
+  // فحص ما إذا كانت المحادثة تحتوي على رسائل من عدة موظفي مبيعات
+  const salesAccounts = new Set();
+  messages.forEach(m => {
+    if (m.sender === 'sales' && m.accountName) salesAccounts.add(m.accountName);
+  });
+
+  let noticeHtml = '';
+  if (salesAccounts.size > 1) {
+    const accNames = Array.from(salesAccounts).join(' و ');
+    noticeHtml = `
+      <div style="background: rgba(0, 168, 132, 0.12); border: 1px solid rgba(0, 168, 132, 0.35); border-radius: 8px; padding: 10px 16px; margin: 12px auto; max-width: 85%; text-align: center; font-size: 0.83rem; color: #00a884; display: flex; align-items: center; justify-content: center; gap: 8px;">
+        <span>ℹ️</span>
+        <span>محادثة مشتركة: هذا العميل تواصل مع أكثر من موظف مبيعات (<strong>${escapeHtml(accNames)}</strong>).</span>
+      </div>
+    `;
+  }
+
+  waChatMessagesScroll.innerHTML = noticeHtml + messages.map(msg => renderSingleMessageBubble(msg)).join('');
 }
 
 function renderSingleMessageBubble(msg) {
@@ -305,16 +325,21 @@ function connectSSE() {
 
 function handleIncomingLiveEvents(events) {
   let activeChatReceived = false;
+  const currentAcc = waFilterAccount ? waFilterAccount.value : '';
 
   for (const event of events) {
-    // 1. إذا كانت الرسالة تخص الشات المفتوح حالياً
-    if (activeChatId && event.chatId === activeChatId) {
+    const matchesAccount = !currentAcc || event.accountId === currentAcc || event.accountName === currentAcc;
+
+    // 1. إذا كانت الرسالة تخص الشات المفتوح حالياً وتطابق الفلتر المختار
+    if (activeChatId && event.chatId === activeChatId && matchesAccount) {
       appendIncomingMessage(event);
       activeChatReceived = true;
     }
 
-    // 2. تحديث قائمة الشاتات في الـ Sidebar
-    updateChatSidebarOnEvent(event);
+    // 2. تحديث قائمة الشاتات في الـ Sidebar إذا كانت تطابق الفلتر المختار
+    if (matchesAccount) {
+      updateChatSidebarOnEvent(event);
+    }
   }
 
   // 3. تحديث كروت الإحصائيات الحية

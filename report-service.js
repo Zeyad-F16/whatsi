@@ -669,7 +669,8 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
 
   if (accountId) {
     params.push(accountId);
-    filterSql += ` AND account_id = $${params.length}`;
+    const pIdx = params.length;
+    filterSql += ` AND (account_id = $${pIdx} OR account_name = $${pIdx})`;
   }
 
   let searchSql = '';
@@ -738,7 +739,8 @@ async function getChatMessages({ chatId, accountId = null, limit = 200 } = {}) {
   let accFilter = '';
   if (accountId) {
     params.push(accountId);
-    accFilter = ` AND account_id = $${params.length}`;
+    const pIdx = params.length;
+    accFilter = ` AND (account_id = $${pIdx} OR account_name = $${pIdx})`;
   }
 
   const query = `
