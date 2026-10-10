@@ -434,6 +434,42 @@ function scheduleRecentMessageRecovery() {
   }, 1000);
 }
 
+let chatCollectionHooked = false;
+function hookChatCollection(ChatCollection) {
+  if (chatCollectionHooked || !ChatCollection) return;
+  chatCollectionHooked = true;
+
+  function reportChatUnread(chatModel) {
+    try {
+      const chatId = chatModel.id?._serialized || chatModel.get?.('id')?._serialized;
+      if (!chatId) return;
+      const count = Number(chatModel.unreadCount ?? chatModel.get?.('unreadCount') ?? 0);
+      ipcRenderer.send('chat-unread-updated', {
+        accountId: accountId || 'account-default',
+        chatId,
+        unreadCount: count,
+        timestamp: new Date().toISOString()
+      });
+    } catch (_) {}
+  }
+
+  try {
+    ChatCollection.on?.('change:unreadCount', reportChatUnread);
+  } catch (_) {}
+
+  // عند قيام السيلز بالنقر داخل واتساب ويب لفتح أي محادثة (عمل سين)
+  document.addEventListener('click', () => {
+    setTimeout(() => {
+      try {
+        const activeChat = ChatCollection.getActive?.() || window.require?.('WAWebCollections')?.Chat?.getActive?.();
+        if (activeChat) {
+          reportChatUnread(activeChat);
+        }
+      } catch (_) {}
+    }, 400);
+  }, true);
+}
+
 function tryHookCollection() {
   if (!accountId) { setCaptureHookStatus('waiting-account-info'); return false; }
   if (typeof window.require !== 'function') { setCaptureHookStatus('node-require-unavailable'); return false; }
@@ -453,6 +489,11 @@ function tryHookCollection() {
     // المكتبة لم تُحمَّل بعد أو لديها unresolved dependencies — ننتظر
     setCaptureHookStatus('wa-collections-module-unavailable');
     return false;
+  }
+
+  const ChatCollection = collections?.Chat || collections?.default?.Chat;
+  if (ChatCollection && !chatCollectionHooked) {
+    hookChatCollection(ChatCollection);
   }
 
   // نتأكد أن الـ Msg collection موجود ومكتمل

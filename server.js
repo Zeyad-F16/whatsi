@@ -197,6 +197,7 @@ app.get('/api/live-stream', (req, res) => {
 // خدمة بث التحديثات اللحظية
 let lastKnownMsgId = 0;
 let lastKnownAudioId = 0;
+let lastKnownSeenTime = new Date().toISOString();
 
 async function startRealtimeLiveTracker() {
   try {
@@ -221,6 +222,22 @@ async function startRealtimeLiveTracker() {
             client.write(payload);
           } catch (e) {
             sseClients.delete(client);
+          }
+        }
+      }
+
+      // التحقق من تحديثات قراءة السيلز للمحادثات (Seen Events)
+      const seenUpdates = await reportService.getRecentSalesSeenUpdates(lastKnownSeenTime);
+      if (seenUpdates && seenUpdates.length > 0) {
+        lastKnownSeenTime = seenUpdates[seenUpdates.length - 1].seenAt;
+        for (const update of seenUpdates) {
+          const payload = `data: ${JSON.stringify({ type: 'chat_unread_updated', accountId: update.accountId, chatId: update.chatId, unreadCount: update.unreadCount })}\n\n`;
+          for (const client of sseClients) {
+            try {
+              client.write(payload);
+            } catch (e) {
+              sseClients.delete(client);
+            }
           }
         }
       }

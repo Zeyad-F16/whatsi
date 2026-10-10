@@ -249,6 +249,16 @@ ipcMain.on('customer-phone-resolved', async (_event, data = {}) => {
   }
 });
 
+// تحديث حالة القراءة (Seen) عند قيام السيلز بالنقر أو قراءة المحادثة في واتساب
+ipcMain.on('chat-unread-updated', async (_event, data = {}) => {
+  if (!db || !data.accountId || !data.chatId) return;
+  try {
+    await db.recordSalesChatSeen(data.accountId, data.chatId, Number(data.unreadCount) || 0, data.timestamp || new Date().toISOString());
+  } catch (err) {
+    console.warn('[Main] Could not update sales chat seen:', err.message);
+  }
+});
+
 /**
  * نبضة حياة من الـ preload script.
  */

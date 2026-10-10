@@ -700,17 +700,23 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
         c.chat_id, c.customer_name, c.customer_phone, c.account_id, c.account_name, c.text, c.sender, c.timestamp, c.msg_type,
         ROW_NUMBER() OVER (PARTITION BY c.chat_id ORDER BY c.timestamp DESC) AS rn,
         COUNT(*) OVER (PARTITION BY c.chat_id) AS total_count,
-        COUNT(CASE WHEN c.sender = 'customer' AND (cs.last_sales_time IS NULL OR c.timestamp > cs.last_sales_time) THEN 1 END) OVER (PARTITION BY c.chat_id) AS unread_count
+        COUNT(CASE WHEN c.sender = 'customer' AND (cs.last_sales_time IS NULL OR c.timestamp > cs.last_sales_time) THEN 1 END) OVER (PARTITION BY c.chat_id) AS raw_unread_count
       FROM combined c
       JOIN chat_sales cs ON c.chat_id = cs.chat_id
     )
     SELECT 
-      chat_id, customer_name, customer_phone, account_id, account_name, 
-      text AS last_message, sender AS last_sender, timestamp AS last_time, 
-      msg_type AS last_type, total_count AS message_count, unread_count
-    FROM ranked
-    WHERE rn = 1
-    ORDER BY last_time DESC
+      r.chat_id, r.customer_name, r.customer_phone, r.account_id, r.account_name, 
+      r.text AS last_message, r.sender AS last_sender, r.timestamp AS last_time, 
+      r.msg_type AS last_type, r.total_count AS message_count,
+      CASE 
+        WHEN s.seen_at IS NOT NULL AND s.seen_at >= r.timestamp AND s.unread_count = 0 THEN 0
+        WHEN s.seen_at IS NOT NULL AND s.seen_at >= r.timestamp AND s.unread_count > 0 THEN s.unread_count
+        ELSE r.raw_unread_count
+      END AS unread_count
+    FROM ranked r
+    LEFT JOIN sales_chat_seen s ON r.account_id = s.account_id AND r.chat_id = s.chat_id
+    WHERE r.rn = 1
+    ORDER BY r.last_time DESC
     LIMIT ${Number(limit) || 100} OFFSET ${Number(offset) || 0};
   `;
 
@@ -866,6 +872,21 @@ async function testGeminiConnection() {
   return await gemini.testConnection();
 }
 
+async function getRecentSalesSeenUpdates(since) {
+  await initialize();
+  const pool = db.getPool();
+  const res = await pool.query(
+    'SELECT account_id, chat_id, unread_count, seen_at FROM sales_chat_seen WHERE seen_at > $1 ORDER BY seen_at ASC',
+    [since || new Date(0)]
+  );
+  return res.rows.map(r => ({
+    accountId: r.account_id,
+    chatId: r.chat_id,
+    unreadCount: Number(r.unread_count) || 0,
+    seenAt: r.seen_at
+  }));
+}
+
 module.exports = {
   initialize,
   setUserDataPath,
@@ -886,5 +907,6 @@ module.exports = {
   getChatMessages,
   getLatestMessageIds,
   getNewMessagesSince,
+  getRecentSalesSeenUpdates,
   DATA_RETENTION_DAYS
 };

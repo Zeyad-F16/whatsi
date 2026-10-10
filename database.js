@@ -42,6 +42,15 @@ async function initialize() {
   if (!rows[0].messages || !rows[0].audio_messages || !rows[0].audio_job_outbox || !rows[0].report_revisions || !rows[0].report_cache || !rows[0].gemini_usage || !rows[0].contact_history || !rows[0].sales_daily_scores) {
     throw new Error('مخطط PostgreSQL غير مطبق. نفّذ الأمر npm run db:migrate قبل تشغيل التطبيق.');
   }
+  await p.query(`
+    CREATE TABLE IF NOT EXISTS sales_chat_seen (
+      account_id TEXT NOT NULL,
+      chat_id TEXT NOT NULL,
+      seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      unread_count INT NOT NULL DEFAULT 0,
+      PRIMARY KEY (account_id, chat_id)
+    );
+  `);
   await backfillCustomerContactHistory();
   console.log('[Database] PostgreSQL connected; Prisma migration schema is ready.');
 }
@@ -243,6 +252,12 @@ async function saveMessage(data) {
     if (result.rows[0]) {
       await registerCustomerContact(client, { accountId: values[0], customerPhone: values[3], chatId: values[4], timestamp: values[8] });
       await bumpDailyReportRevision(client, values[0], getLocalDateString(new Date(values[8])));
+      if (values[6] === 'sales' && values[4]) {
+        await client.query(
+          "INSERT INTO sales_chat_seen (account_id, chat_id, seen_at, unread_count) VALUES ($1, $2, $3, 0) ON CONFLICT (account_id, chat_id) DO UPDATE SET seen_at=EXCLUDED.seen_at, unread_count=0",
+          [values[0], values[4], values[8]]
+        );
+      }
     }
     await client.query('COMMIT');
     return result.rows[0] ? result.rows[0].id : null;
@@ -671,8 +686,20 @@ async function purgeExpiredData() {
   finally { client.release(); }
 }
 
+async function recordSalesChatSeen(accountId, chatId, unreadCount = 0, seenAt = new Date().toISOString()) {
+  if (!accountId || !chatId) return;
+  const p = getPool();
+  await p.query(`
+    INSERT INTO sales_chat_seen (account_id, chat_id, seen_at, unread_count)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (account_id, chat_id)
+    DO UPDATE SET seen_at = EXCLUDED.seen_at, unread_count = EXCLUDED.unread_count;
+  `, [accountId, chatId, seenAt, unreadCount]);
+}
+
 module.exports = { initialize, close, setAudioTimestampCutoff, saveMessage, captureAudio, pendingAudioJobs, publishedAudioJobs, discardAudioJobsBefore, markAudioJobPublished,
   completeAudioJob, markAudioJobForRetry, getAudioJobState, updateAudioFilePath, updateAudioTranscript, getAudioMessages, getCustomerNumbers, getTodayMessages,
   formatMessagesForGemini, buildReportInputManifest, getTodayStats, clearTodayMessages, purgeExpiredData, getLocalDateString,
   getPool, formatPhoneNumber, updateCustomerPhoneForChat, getDailyReportRevision, getCachedDailyReport, storeDailyReportCache,
-  recordGeminiUsage, REPORT_PROMPT_VERSION, getLeadFollowupContacts, saveSalesDailyScores, getMonthlySalesScores, DATA_RETENTION_DAYS, DATA_RETENTION_MS };
+  recordGeminiUsage, REPORT_PROMPT_VERSION, getLeadFollowupContacts, saveSalesDailyScores, getMonthlySalesScores, DATA_RETENTION_DAYS, DATA_RETENTION_MS,
+  recordSalesChatSeen };

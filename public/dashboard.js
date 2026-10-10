@@ -138,55 +138,6 @@ async function loadChatsList() {
   }
 }
 
-// ===== Seen State (حالة القراءة على طريقة واتساب) =====
-function getSeenMap() {
-  try {
-    return JSON.parse(localStorage.getItem('whatsi_seen_chats') || '{}');
-  } catch (_) {
-    return {};
-  }
-}
-
-function getChatSeenTimestamp(chatId) {
-  const map = getSeenMap();
-  return Number(map[chatId]) || 0;
-}
-
-function markChatAsSeen(chatId, messageTime) {
-  if (!chatId) return;
-  try {
-    const map = getSeenMap();
-    const ts = messageTime ? new Date(messageTime).getTime() : Date.now();
-    map[chatId] = Math.max(Number(map[chatId]) || 0, ts);
-    localStorage.setItem('whatsi_seen_chats', JSON.stringify(map));
-  } catch (_) {}
-
-  // إخفاء العداد فوراً من الكارت وإزالة تمييز الوقت والاسم
-  const badgeEl = document.getElementById(`wa-chat-badge-${chatId}`);
-  if (badgeEl) {
-    badgeEl.style.display = 'none';
-    badgeEl.textContent = '0';
-  }
-  const timeEl = document.getElementById(`wa-chat-time-${chatId}`);
-  if (timeEl) {
-    timeEl.classList.remove('unread');
-  }
-  const nameEl = document.getElementById(`wa-chat-name-${chatId}`);
-  if (nameEl) {
-    nameEl.style.fontWeight = 'normal';
-  }
-  const snippetEl = document.getElementById(`wa-chat-snippet-${chatId}`);
-  if (snippetEl) {
-    snippetEl.style.color = '#8696a0';
-  }
-
-  // تحديث الكائن في الذاكرة
-  const chat = chats.find(c => c.chatId === chatId);
-  if (chat) {
-    chat.unreadCount = 0;
-  }
-}
-
 function renderChatsList(items) {
   if (!waChatListContainer) return;
   if (!items.length) {
@@ -201,16 +152,8 @@ function renderChatsList(items) {
     const senderIcon = isSales ? '✓ ' : '';
     const prefix = chat.lastType === 'audio' ? '🎤 ' : '';
 
-    // حساب الـ unread الفعلي: يظهر فقط إذا كان هناك رسائل واردة من العميل ولم يقم المستخدم بعمل "سين" لها بعد
-    let effectiveUnread = 0;
-    if (chat.unreadCount > 0 && !isSales) {
-      const seenTime = getChatSeenTimestamp(chat.chatId);
-      const lastMsgTime = chat.lastTime ? new Date(chat.lastTime).getTime() : 0;
-      if (lastMsgTime > seenTime && !isActive) {
-        effectiveUnread = chat.unreadCount;
-      }
-    }
-
+    // الـ unread يخص السيلز: لا يختفي بمجرد نقر المدير على الشات، بل يظل ظاهراً حتى يقوم السيلز بالرد أو عمل سين في واتساب
+    const effectiveUnread = !isSales ? (Number(chat.unreadCount) || 0) : 0;
     const hasUnread = effectiveUnread > 0;
 
     return `
@@ -249,11 +192,6 @@ window.openChat = async function(chatId) {
     document.getElementById('wa-active-name').textContent = chat.customerName;
     document.getElementById('wa-active-meta').textContent = `${chat.customerPhone || 'بدون رقم'} · الخط: ${chat.accountName || 'غير محدد'}`;
     document.getElementById('wa-active-avatar').textContent = (chat.customerName || 'ع').charAt(0).toUpperCase();
-
-    // عمل "سين" فوراً وإخفاء عداد الـ unread تماماً زي واتساب
-    markChatAsSeen(chatId, chat.lastTime);
-  } else {
-    markChatAsSeen(chatId, new Date().toISOString());
   }
 
   waEmptyChatState.style.display = 'none';
@@ -380,6 +318,8 @@ function connectSSE() {
       const data = JSON.parse(event.data);
       if (data.type === 'new_events' && Array.isArray(data.events)) {
         handleIncomingLiveEvents(data.events);
+      } else if (data.type === 'chat_unread_updated') {
+        handleSalesUnreadUpdate(data);
       }
     } catch (e) {
       console.error('SSE JSON error:', e);
@@ -390,6 +330,38 @@ function connectSSE() {
     if (statusLabel) statusLabel.textContent = 'إعادة الاتصال بالبث...';
     // EventSource handles reconnection automatically
   };
+}
+
+function handleSalesUnreadUpdate(data) {
+  if (!data || !data.chatId) return;
+  const currentAcc = waFilterAccount ? waFilterAccount.value : '';
+  if (currentAcc && data.accountId && data.accountId !== currentAcc) return;
+
+  const badgeEl = document.getElementById(`wa-chat-badge-${data.chatId}`);
+  const timeEl = document.getElementById(`wa-chat-time-${data.chatId}`);
+  const nameEl = document.getElementById(`wa-chat-name-${data.chatId}`);
+  const count = Number(data.unreadCount) || 0;
+
+  if (count === 0) {
+    if (badgeEl) {
+      badgeEl.style.display = 'none';
+      badgeEl.textContent = '0';
+    }
+    if (timeEl) timeEl.classList.remove('unread');
+    if (nameEl) nameEl.style.fontWeight = 'normal';
+  } else {
+    if (badgeEl) {
+      badgeEl.textContent = count;
+      badgeEl.style.display = 'inline-flex';
+    }
+    if (timeEl) timeEl.classList.add('unread');
+    if (nameEl) nameEl.style.fontWeight = '700';
+  }
+
+  const chat = chats.find(c => c.chatId === data.chatId);
+  if (chat) {
+    chat.unreadCount = count;
+  }
 }
 
 function handleIncomingLiveEvents(events) {
@@ -403,7 +375,6 @@ function handleIncomingLiveEvents(events) {
     if (activeChatId && event.chatId === activeChatId && matchesAccount) {
       appendIncomingMessage(event);
       activeChatReceived = true;
-      markChatAsSeen(event.chatId, event.timestamp);
     }
 
     // 2. تحديث قائمة الشاتات في الـ Sidebar إذا كانت تطابق الفلتر المختار
@@ -419,7 +390,6 @@ function handleIncomingLiveEvents(events) {
 function updateChatSidebarOnEvent(event) {
   const isSales = event.sender === 'sales';
   const prefix = event.type === 'audio' ? '🎤 ' : '';
-  const isActive = activeChatId && event.chatId === activeChatId;
 
   const snippet = document.getElementById(`wa-chat-snippet-${event.chatId}`);
   if (snippet) {
@@ -437,12 +407,12 @@ function updateChatSidebarOnEvent(event) {
       timeEl.textContent = event.displayTime;
     }
 
-    // إدارة عداد الـ Unread والـ Seen لحظياً
+    // إدارة عداد الـ Unread الخاص بالسيلز لحظياً
     const badgeEl = document.getElementById(`wa-chat-badge-${event.chatId}`);
     const nameEl = document.getElementById(`wa-chat-name-${event.chatId}`);
 
-    if (isActive || isSales) {
-      // إذا كان الشات مفتوحاً الآن أمام المستخدم أو السيلز هو من رد: شيل العداد وعلم سين
+    if (isSales) {
+      // السيلز رد بنفسه في واتساب: تصفير العداد وإخفاء البادج
       if (badgeEl) {
         badgeEl.style.display = 'none';
         badgeEl.textContent = '0';
@@ -450,9 +420,11 @@ function updateChatSidebarOnEvent(event) {
       if (timeEl) timeEl.classList.remove('unread');
       if (nameEl) nameEl.style.fontWeight = 'normal';
       snippet.style.color = '#8696a0';
-      if (isActive) markChatAsSeen(event.chatId, event.timestamp);
+
+      const chat = chats.find(c => c.chatId === event.chatId);
+      if (chat) chat.unreadCount = 0;
     } else {
-      // رسالة واردة من العميل في شات آخر غير مفتوح: إظهار وزيادة عداد الـ Unread
+      // رسالة واردة جديدة من العميل: زيادة عداد الـ Unread الخاص بالسيلز
       const currentCount = parseInt(badgeEl?.textContent || '0', 10) || 0;
       const newCount = currentCount + 1;
       if (badgeEl) {
@@ -462,6 +434,9 @@ function updateChatSidebarOnEvent(event) {
       if (timeEl) timeEl.classList.add('unread');
       if (nameEl) nameEl.style.fontWeight = '700';
       snippet.style.color = '#e9edef';
+
+      const chat = chats.find(c => c.chatId === event.chatId);
+      if (chat) chat.unreadCount = newCount;
     }
   } else {
     // محادثة جديدة لم تكن بالقائمة، نعيد جلب القائمة
