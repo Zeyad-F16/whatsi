@@ -153,6 +153,83 @@ app.get('/api/test-gemini', async (req, res) => {
   }
 });
 
+// 11. جلب قائمة محادثات واتساب الحية (Live WhatsApp Chats)
+app.get('/api/chats', async (req, res) => {
+  try {
+    const { accountId, search, limit, offset } = req.query;
+    const chats = await reportService.getChatsList({ accountId, search, limit, offset });
+    res.json({ success: true, chats });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 12. جلب رسائل وصوتيات محادثة معينة مرتبة زمنياً
+app.get('/api/chat-messages', async (req, res) => {
+  try {
+    const { chatId, accountId, limit } = req.query;
+    if (!chatId) return res.status(400).json({ success: false, error: 'chatId مطلوب' });
+    const messages = await reportService.getChatMessages({ chatId, accountId, limit });
+    res.json({ success: true, messages });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 13. قناة البث اللحظي للرسائل الجديدة عبر Server-Sent Events (SSE)
+const sseClients = new Set();
+
+app.get('/api/live-stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // إيقاف الـ buffering في Nginx
+  res.flushHeaders();
+
+  res.write(`data: ${JSON.stringify({ type: 'connected', time: new Date().toISOString() })}\n\n`);
+  sseClients.add(res);
+
+  req.on('close', () => {
+    sseClients.delete(res);
+  });
+});
+
+// خدمة بث التحديثات اللحظية
+let lastKnownMsgId = 0;
+let lastKnownAudioId = 0;
+
+async function startRealtimeLiveTracker() {
+  try {
+    const initial = await reportService.getLatestMessageIds();
+    lastKnownMsgId = initial.lastMsgId;
+    lastKnownAudioId = initial.lastAudioId;
+  } catch (e) {
+    console.error('[LiveStream] Tracker init error:', e.message);
+  }
+
+  setInterval(async () => {
+    if (sseClients.size === 0) return;
+    try {
+      const { items, maxMsgId, maxAudioId } = await reportService.getNewMessagesSince(lastKnownMsgId, lastKnownAudioId);
+      lastKnownMsgId = maxMsgId;
+      lastKnownAudioId = maxAudioId;
+
+      if (items.length > 0) {
+        const payload = `data: ${JSON.stringify({ type: 'new_events', events: items })}\n\n`;
+        for (const client of sseClients) {
+          try {
+            client.write(payload);
+          } catch (e) {
+            sseClients.delete(client);
+          }
+        }
+      }
+    } catch (err) {
+      // quiet poll handler
+    }
+  }, 1500);
+}
+
 // Fallback للصفحة الرئيسية
 app.use((req, res) => {
   const indexHtml = path.join(publicDir, 'index.html');
@@ -165,11 +242,13 @@ app.use((req, res) => {
 
 // بدء تشغيل الخادم
 reportService.initialize().then(() => {
+  startRealtimeLiveTracker();
   app.listen(PORT, HOST, () => {
     console.log(`====================================================`);
     console.log(`🚀 [Whatsi Dashboard] Web Server running at:`);
     console.log(`   http://${HOST === '0.0.0.0' ? '127.0.0.1' : HOST}:${PORT}`);
     console.log(`   Retention Days: ${reportService.DATA_RETENTION_DAYS} days`);
+    console.log(`   Realtime SSE Stream: /api/live-stream active`);
     console.log(`====================================================`);
   });
 }).catch(err => {

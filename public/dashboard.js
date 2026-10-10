@@ -1,15 +1,22 @@
 /**
  * dashboard.js
- * كود العميل للوحة التحكم المستقلة (Web Dashboard).
- * يتصل بالسيرفر عبر REST API دون الحاجة لأي مكتبات Electron.
+ * كود العميل المتكامل لمنظومة Whatsi Z-ray:
+ * 1. واجهة محادثات واتساب الحية (Live WhatsApp Web)
+ * 2. واجهة تقارير وتدقيق المبيعات (AI Dashboard)
+ * 3. قناة البث اللحظي (SSE - Server-Sent Events) لتحديث الرسائل ثانية بثانية
  */
 
-// ===== State =====
+// ===== Global State =====
+let currentMainTab = 'whatsapp';
 let accounts = [];
+let chats = [];
+let activeChatId = null;
 let currentPeriod = 'today';
 let reportData = null;
 let latestEvidenceGate = null;
 let editingAccountId = null;
+let sseConnection = null;
+let searchDebounceTimer = null;
 
 const dayNamesArabic = {
   6: 'السبت',
@@ -23,59 +30,325 @@ const dayNamesArabic = {
 
 // ===== Elements =====
 const reportAccountSelect = document.getElementById('report-account');
-const reportSubtitleText = document.getElementById('report-subtitle-text');
-const reportEmpty = document.getElementById('report-empty');
-const reportLoading = document.getElementById('report-loading');
-const reportOutput = document.getElementById('report-output');
-const reportError = document.getElementById('report-error');
-const loadingProgress = document.getElementById('loading-progress');
-const reportText = document.getElementById('report-text');
+const waFilterAccount = document.getElementById('wa-filter-account');
+const waSearchInput = document.getElementById('wa-search-input');
+const waChatListContainer = document.getElementById('wa-chat-list-container');
+const waEmptyChatState = document.getElementById('wa-empty-chat-state');
+const waActiveChatContent = document.getElementById('wa-active-chat-content');
+const waChatMessagesScroll = document.getElementById('wa-chat-messages-scroll');
 
 // ===== Initialization =====
 async function init() {
   await loadAccounts();
+  await loadChatsList();
   await refreshLiveData();
   await loadMonthlyScores();
+  connectSSE();
 }
 
-// ===== Account Management =====
+// ===== 1. Tab Switching =====
+window.switchMainTab = function(tabName) {
+  currentMainTab = tabName;
+  document.getElementById('tab-btn-whatsapp').classList.toggle('active', tabName === 'whatsapp');
+  document.getElementById('tab-btn-dashboard').classList.toggle('active', tabName === 'dashboard');
+
+  document.getElementById('view-whatsapp').classList.toggle('active', tabName === 'whatsapp');
+  document.getElementById('view-dashboard').classList.toggle('active', tabName === 'dashboard');
+
+  if (tabName === 'dashboard') {
+    refreshLiveData();
+    loadMonthlyScores();
+  } else if (tabName === 'whatsapp') {
+    loadChatsList();
+  }
+};
+
+// ===== 2. Accounts Management =====
 async function loadAccounts() {
   try {
     const res = await fetch('/api/accounts');
     const data = await res.json();
     if (data.success && Array.isArray(data.accounts)) {
       accounts = data.accounts;
-      renderAccountSelect();
+      populateAccountDropdowns();
     }
   } catch (err) {
     console.error('Failed to load accounts:', err);
   }
 }
 
-function renderAccountSelect() {
-  const currentVal = reportAccountSelect.value;
-  reportAccountSelect.innerHTML = '<option value="">كل الحسابات</option>';
-  for (const acc of accounts) {
-    const opt = document.createElement('option');
-    opt.value = acc.id;
-    opt.textContent = acc.name;
-    reportAccountSelect.appendChild(opt);
+function populateAccountDropdowns() {
+  // 1. القائمة في لوحة التقارير
+  if (reportAccountSelect) {
+    const prevVal = reportAccountSelect.value;
+    reportAccountSelect.innerHTML = '<option value="">كل الحسابات</option>';
+    for (const acc of accounts) {
+      const opt = document.createElement('option');
+      opt.value = acc.id;
+      opt.textContent = acc.name;
+      reportAccountSelect.appendChild(opt);
+    }
+    if (prevVal) reportAccountSelect.value = prevVal;
   }
-  if (currentVal && accounts.some(a => a.id === currentVal)) {
-    reportAccountSelect.value = currentVal;
+
+  // 2. القائمة في المحادثات الحية
+  if (waFilterAccount) {
+    const prevVal = waFilterAccount.value;
+    waFilterAccount.innerHTML = '<option value="">جميع خطوط المبيعات (كل الحسابات)</option>';
+    for (const acc of accounts) {
+      const opt = document.createElement('option');
+      opt.value = acc.id;
+      opt.textContent = acc.name;
+      waFilterAccount.appendChild(opt);
+    }
+    if (prevVal) waFilterAccount.value = prevVal;
   }
 }
 
+// ===== 3. WhatsApp Chats List =====
+window.filterChatsByAccount = function() {
+  loadChatsList();
+};
+
+window.handleChatSearch = function(e) {
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => {
+    loadChatsList();
+  }, 300);
+};
+
+async function loadChatsList() {
+  const accountId = waFilterAccount ? waFilterAccount.value : '';
+  const search = waSearchInput ? waSearchInput.value.trim() : '';
+
+  try {
+    const res = await fetch(`/api/chats?accountId=${encodeURIComponent(accountId)}&search=${encodeURIComponent(search)}`);
+    const data = await res.json();
+    if (data.success && Array.isArray(data.chats)) {
+      chats = data.chats;
+      renderChatsList(chats);
+    }
+  } catch (err) {
+    console.error('Failed to load chats:', err);
+    if (waChatListContainer) {
+      waChatListContainer.innerHTML = `<div style="padding:20px; color:#ff4d4f; text-align:center;">خطأ في جلب المحادثات: ${err.message}</div>`;
+    }
+  }
+}
+
+function renderChatsList(items) {
+  if (!waChatListContainer) return;
+  if (!items.length) {
+    waChatListContainer.innerHTML = '<div style="padding: 30px; text-align: center; color: #8696a0;">لا توجد محادثات مسجلة تطابق البحث.</div>';
+    return;
+  }
+
+  waChatListContainer.innerHTML = items.map(chat => {
+    const initial = (chat.customerName || 'ع').charAt(0).toUpperCase();
+    const isActive = chat.chatId === activeChatId;
+    const isSales = chat.lastSender === 'sales';
+    const senderIcon = isSales ? '✓ ' : '';
+    const prefix = chat.lastType === 'audio' ? '🎤 ' : '';
+
+    return `
+      <div class="wa-chat-item ${isActive ? 'active' : ''}" id="wa-chat-card-${escapeAttr(chat.chatId)}" onclick="openChat('${escapeAttr(chat.chatId)}')">
+        <div class="wa-chat-avatar">${initial}</div>
+        <div class="wa-chat-info">
+          <div class="wa-chat-top-line">
+            <span class="wa-chat-name">${escapeHtml(chat.customerName)}</span>
+            <span class="wa-chat-time">${escapeHtml(chat.displayTime || '')}</span>
+          </div>
+          <div class="wa-chat-bottom-line">
+            <span class="wa-chat-snippet" id="wa-chat-snippet-${escapeAttr(chat.chatId)}">
+              ${senderIcon}${prefix}${escapeHtml(chat.lastMessage || 'بدون رسالة')}
+            </span>
+            <span class="wa-chat-badge" style="${chat.messageCount ? '' : 'display:none;'}">${chat.messageCount}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ===== 4. Active Conversation Details =====
+window.openChat = async function(chatId) {
+  activeChatId = chatId;
+
+  // تحديث تحديد القائمة الجانبية
+  document.querySelectorAll('.wa-chat-item').forEach(el => el.classList.remove('active'));
+  const activeEl = document.getElementById(`wa-chat-card-${chatId}`);
+  if (activeEl) activeEl.classList.add('active');
+
+  const chat = chats.find(c => c.chatId === chatId);
+  if (chat) {
+    document.getElementById('wa-active-name').textContent = chat.customerName;
+    document.getElementById('wa-active-meta').textContent = `${chat.customerPhone || 'بدون رقم'} · الخط: ${chat.accountName || 'غير محدد'}`;
+    document.getElementById('wa-active-avatar').textContent = (chat.customerName || 'ع').charAt(0).toUpperCase();
+  }
+
+  waEmptyChatState.style.display = 'none';
+  waActiveChatContent.style.display = 'flex';
+
+  await reloadCurrentChatMessages();
+};
+
+window.reloadCurrentChatMessages = async function() {
+  if (!activeChatId || !waChatMessagesScroll) return;
+
+  waChatMessagesScroll.innerHTML = '<div style="padding: 20px; text-align: center; color: #8696a0;">جاري تحميل الرسائل والتسجيلات...</div>';
+
+  try {
+    const res = await fetch(`/api/chat-messages?chatId=${encodeURIComponent(activeChatId)}`);
+    const data = await res.json();
+    if (data.success && Array.isArray(data.messages)) {
+      renderChatMessages(data.messages);
+      scrollToBottom();
+    }
+  } catch (err) {
+    waChatMessagesScroll.innerHTML = `<div style="padding: 20px; color: red;">خطأ: ${err.message}</div>`;
+  }
+};
+
+function renderChatMessages(messages) {
+  if (!waChatMessagesScroll) return;
+  if (!messages.length) {
+    waChatMessagesScroll.innerHTML = '<div style="padding: 30px; text-align: center; color: #8696a0;">لا توجد رسائل مسجلة لهذا العميل.</div>';
+    return;
+  }
+
+  waChatMessagesScroll.innerHTML = messages.map(msg => renderSingleMessageBubble(msg)).join('');
+}
+
+function renderSingleMessageBubble(msg) {
+  const isSales = msg.sender === 'sales';
+  const roleLabel = isSales ? `👔 ${msg.accountName || 'السيلز'}` : `👤 ${msg.customerName || 'العميل'}`;
+
+  let contentHtml = '';
+  if (msg.type === 'audio') {
+    const duration = msg.durationSec ? ` · ${msg.durationSec} ثانية` : '';
+    const tone = msg.toneAnalysis ? `<span class="wa-audio-tone-badge">نبرة الصوت: ${escapeHtml(msg.toneAnalysis)}</span>` : '';
+    contentHtml = `
+      <div class="wa-audio-card">
+        <div class="wa-audio-header">
+          <span>🎤 تسجيل صوتي${duration}</span>
+          ${tone}
+        </div>
+        <div class="wa-audio-transcript">
+          <strong>التفريغ:</strong> "${escapeHtml(msg.transcript || 'لم يتم التفريغ أو جارٍ المعالجة...')}"
+        </div>
+      </div>
+    `;
+  } else {
+    contentHtml = `<p class="wa-msg-text">${escapeHtml(msg.text || '')}</p>`;
+  }
+
+  return `
+    <div class="wa-msg-bubble ${isSales ? 'sales' : 'customer'}" id="wa-msg-${escapeAttr(msg.id)}">
+      <span class="wa-msg-sender-tag">${escapeHtml(roleLabel)}</span>
+      ${contentHtml}
+      <div class="wa-msg-footer">
+        <span>${escapeHtml(msg.displayTime || '')}</span>
+        ${isSales ? '<span>✓✓</span>' : ''}
+      </div>
+    </div>
+  `;
+}
+
+function appendIncomingMessage(msg) {
+  if (!waChatMessagesScroll) return;
+  const bubbleHtml = renderSingleMessageBubble(msg);
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = bubbleHtml;
+  const bubble = tempDiv.firstElementChild;
+  if (bubble) {
+    waChatMessagesScroll.appendChild(bubble);
+    scrollToBottom();
+  }
+}
+
+function scrollToBottom() {
+  if (waChatMessagesScroll) {
+    waChatMessagesScroll.scrollTop = waChatMessagesScroll.scrollHeight;
+  }
+}
+
+// ===== 5. Server-Sent Events (SSE) Realtime Stream =====
+function connectSSE() {
+  const statusLabel = document.getElementById('sse-status-label');
+
+  if (sseConnection) {
+    sseConnection.close();
+  }
+
+  sseConnection = new EventSource('/api/live-stream');
+
+  sseConnection.onopen = () => {
+    if (statusLabel) statusLabel.textContent = 'مزامنة لحظية متصلة (Live Sync)';
+  };
+
+  sseConnection.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type === 'new_events' && Array.isArray(data.events)) {
+        handleIncomingLiveEvents(data.events);
+      }
+    } catch (e) {
+      console.error('SSE JSON error:', e);
+    }
+  };
+
+  sseConnection.onerror = () => {
+    if (statusLabel) statusLabel.textContent = 'إعادة الاتصال بالبث...';
+    // EventSource handles reconnection automatically
+  };
+}
+
+function handleIncomingLiveEvents(events) {
+  let activeChatReceived = false;
+
+  for (const event of events) {
+    // 1. إذا كانت الرسالة تخص الشات المفتوح حالياً
+    if (activeChatId && event.chatId === activeChatId) {
+      appendIncomingMessage(event);
+      activeChatReceived = true;
+    }
+
+    // 2. تحديث قائمة الشاتات في الـ Sidebar
+    updateChatSidebarOnEvent(event);
+  }
+
+  // 3. تحديث كروت الإحصائيات الحية
+  refreshLiveData();
+}
+
+function updateChatSidebarOnEvent(event) {
+  const snippet = document.getElementById(`wa-chat-snippet-${event.chatId}`);
+  if (snippet) {
+    const isSales = event.sender === 'sales';
+    const prefix = event.type === 'audio' ? '🎤 ' : '';
+    snippet.innerHTML = `${isSales ? '✓ ' : ''}${prefix}${escapeHtml(event.text || event.transcript || 'تسجيل صوتي')}`;
+    
+    // رفع الشات لأعلى القائمة
+    const card = document.getElementById(`wa-chat-card-${event.chatId}`);
+    if (card && card.parentElement) {
+      card.parentElement.prepend(card);
+    }
+  } else {
+    // محادثة جديدة لم تكن بالقائمة، نعيد جلب القائمة
+    loadChatsList();
+  }
+}
+
+// ===== 6. AI Dashboard & Report Logic =====
 reportAccountSelect.addEventListener('change', () => {
   refreshLiveData();
   loadMonthlyScores();
 });
 
-// ===== Live Stats & KPI Refresh =====
 async function refreshLiveData() {
-  const accountId = reportAccountSelect.value || '';
+  const accountId = reportAccountSelect ? reportAccountSelect.value : '';
   try {
-    const res = await fetch(`/api/stats?period=${currentPeriod}&accountId=${accountId}`);
+    const res = await fetch(`/api/stats?period=${currentPeriod}&accountId=${encodeURIComponent(accountId)}`);
     const data = await res.json();
     if (data.success && data.stats) {
       const s = data.stats;
@@ -91,7 +364,6 @@ async function refreshLiveData() {
   }
 }
 
-// ===== Period Switching =====
 window.setPeriodAndGenerate = function(period) {
   currentPeriod = period;
   const buttons = document.querySelectorAll('.period-btn');
@@ -106,10 +378,15 @@ window.setPeriodAndGenerate = function(period) {
   generateReport(period);
 };
 
-// ===== Generate Report =====
 window.generateReport = async function(periodParam) {
   const period = periodParam || currentPeriod;
   currentPeriod = period;
+
+  const reportEmpty = document.getElementById('report-empty');
+  const reportLoading = document.getElementById('report-loading');
+  const reportOutput = document.getElementById('report-output');
+  const reportError = document.getElementById('report-error');
+  const loadingProgress = document.getElementById('loading-progress');
 
   const periodButtons = [...document.querySelectorAll('.period-btn')];
   periodButtons.forEach(b => b.disabled = true);
@@ -170,8 +447,8 @@ window.generateReport = async function(periodParam) {
   }
 };
 
-// ===== Display Report Output =====
 function displayReport(result) {
+  const reportText = document.getElementById('report-text');
   reportText.innerHTML = '';
 
   const subtitle = result.period === 'today'
@@ -181,23 +458,23 @@ function displayReport(result) {
       : result.period === 'last7days'
         ? `آخر 7 أيام حتى الآن`
         : `آخر 48 ساعة حتى الآن`;
-  if (reportSubtitleText) reportSubtitleText.textContent = subtitle;
+  const subEl = document.getElementById('report-subtitle-text');
+  if (subEl) subEl.textContent = subtitle;
 
   const stats = result.currentStats || {};
 
-  // 1. قسم إحصائيات سرعة الرد المخصصة بمواعيد العمل
+  // 1. سرعة الرد المخصصة
   const responseMetricsSection = renderResponseMetrics(stats.responseMetrics || {});
   if (responseMetricsSection) reportText.appendChild(responseMetricsSection);
 
-  // 2. كفاية عينة التقييم
+  // 2. كفاية العينة
   const evidenceCoverageSection = renderEvidenceCoverage(stats.evidenceByAccount || {});
   if (evidenceCoverageSection) reportText.appendChild(evidenceCoverageSection);
 
-  // 3. محتوى التقرير (Markdown)
+  // 3. التقرير الأساسي
   const reportContent = document.createElement('div');
   reportContent.className = 'report-markdown-body';
   reportContent.innerHTML = formatMarkdown(result.report || '');
-  addPhoneCopyControls(reportContent);
   reportText.appendChild(reportContent);
 
   // 4. التسجيلات الصوتية
@@ -207,7 +484,6 @@ function displayReport(result) {
   }
 }
 
-// ===== Response Metrics Table =====
 function renderResponseMetrics(metrics) {
   const accountsList = Object.values(metrics.perAccount || {});
   if (!accountsList.length) return null;
@@ -217,46 +493,35 @@ function renderResponseMetrics(metrics) {
   section.className = 'report-response-metrics';
   section.dir = 'rtl';
 
-  const heading = document.createElement('h3');
-  heading.style.marginTop = '0';
-  heading.textContent = 'إحصائيات سرعة ومتابعة الرد (محسوبة بدقة بناءً على مواعيد عمل كل موظف)';
-
-  const note = document.createElement('p');
-  note.className = 'response-metrics-note';
-  note.textContent = 'تُحسب مدة الرد وأوقات الانتظار حصرياً خلال ساعات العمل وأيام الدوام المحددة لكل موظف. لا يُحسب وقت الليل أو أيام الإجازة كتأخير.';
-
-  section.append(heading, note);
-
-  const table = document.createElement('table');
-  table.className = 'response-metrics-table';
-  table.innerHTML = `
-    <thead>
-      <tr>
-        <th>الحساب</th>
-        <th>أول رد: متوسط · وسيط · عدد</th>
-        <th>الردود المتكررة: متوسط · وسيط · عدد</th>
-        <th>محادثات تنتظر رد السيلز</th>
-        <th>أقدم انتظار</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${accountsList.map(acc => `
+  section.innerHTML = `
+    <h3 style="margin-top:0;">إحصائيات سرعة ومتابعة الرد (محسوبة بدقة بناءً على مواعيد عمل كل موظف)</h3>
+    <p class="response-metrics-note">تُحسب مدة الرد وأوقات الانتظار حصرياً خلال ساعات العمل وأيام الدوام المحددة لكل موظف. لا يُحسب وقت الليل أو أيام الإجازة كتأخير.</p>
+    <table class="response-metrics-table">
+      <thead>
         <tr>
-          <td><b>${escapeHtml(acc.accountName || 'غير معروف')}</b></td>
-          <td>${formatDuration(acc.firstReply?.averageSeconds)} · ${formatDuration(acc.firstReply?.medianSeconds)} · ${acc.firstReply?.count || 0} رد</td>
-          <td>${formatDuration(acc.repeatedReplies?.averageSeconds)} · ${formatDuration(acc.repeatedReplies?.medianSeconds)} · ${acc.repeatedReplies?.count || 0} رد</td>
-          <td>${acc.pendingSalesReplyCount || 0}</td>
-          <td>${formatDuration(acc.oldestPendingSeconds, acc.oldestPendingIsLowerBound)}</td>
+          <th>الحساب</th>
+          <th>أول رد: متوسط · وسيط · عدد</th>
+          <th>الردود المتكررة: متوسط · وسيط · عدد</th>
+          <th>محادثات تنتظر رد السيلز</th>
+          <th>أقدم انتظار</th>
         </tr>
-      `).join('')}
-    </tbody>
+      </thead>
+      <tbody>
+        ${accountsList.map(acc => `
+          <tr>
+            <td><b>${escapeHtml(acc.accountName || 'غير معروف')}</b></td>
+            <td>${formatDuration(acc.firstReply?.averageSeconds)} · ${formatDuration(acc.firstReply?.medianSeconds)} · ${acc.firstReply?.count || 0} رد</td>
+            <td>${formatDuration(acc.repeatedReplies?.averageSeconds)} · ${formatDuration(acc.repeatedReplies?.medianSeconds)} · ${acc.repeatedReplies?.count || 0} رد</td>
+            <td>${acc.pendingSalesReplyCount || 0}</td>
+            <td>${formatDuration(acc.oldestPendingSeconds, acc.oldestPendingIsLowerBound)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
   `;
-
-  section.appendChild(table);
   return section;
 }
 
-// ===== Evidence Coverage Cards =====
 function renderEvidenceCoverage(evidenceByAccount) {
   const accountsList = Object.values(evidenceByAccount || {});
   if (!accountsList.length) return null;
@@ -264,62 +529,46 @@ function renderEvidenceCoverage(evidenceByAccount) {
   const section = document.createElement('section');
   section.className = 'report-evidence-coverage';
   section.dir = 'rtl';
-
-  const heading = document.createElement('h3');
-  heading.textContent = 'كفاية عينة التقييم السلوكي';
-  const note = document.createElement('p');
-  note.className = 'evidence-coverage-note';
-  note.textContent = 'التقييمات الرقمية تُعتمد فقط عند توفر 3 محادثات و10 رسائل سيلز و5 رسائل عملاء على الأقل لضمان الدقة وتفادي الأحكام المتسرعة.';
-
-  section.append(heading, note);
-
-  for (const account of accountsList) {
-    const card = document.createElement('article');
-    card.className = `evidence-coverage-card${account.status === 'insufficient' ? ' evidence-coverage-card--insufficient' : ''}`;
-    card.innerHTML = `
-      <strong>${escapeHtml(account.accountName || 'الحساب')} — ${account.status === 'sufficient' ? 'عينة كافية للتقييم' : 'دليل غير كافٍ لدرجة يومية موثوقة'}</strong>
-      <p>${account.chats} محادثة · ${account.salesMessages} رسالة سيلز · ${account.customerMessages} رسالة عميل · ${account.shortChats} محادثة قصيرة</p>
-      <p style="font-size:0.8rem; color:var(--text-dim);">${escapeHtml(account.note || '')}</p>
-    `;
-    section.appendChild(card);
-  }
+  section.innerHTML = `
+    <h3>كفاية عينة التقييم السلوكي</h3>
+    <p class="evidence-coverage-note">التقييمات الرقمية تُعتمد فقط عند توفر 3 محادثات و10 رسائل سيلز و5 رسائل عملاء على الأقل لضمان الدقة وتفادي الأحكام المتسرعة.</p>
+    ${accountsList.map(acc => `
+      <article class="evidence-coverage-card${acc.status === 'insufficient' ? ' evidence-coverage-card--insufficient' : ''}">
+        <strong>${escapeHtml(acc.accountName || 'الحساب')} — ${acc.status === 'sufficient' ? 'عينة كافية للتقييم' : 'دليل غير كافٍ لدرجة يومية موثوقة'}</strong>
+        <p>${acc.chats} محادثة · ${acc.salesMessages} رسالة سيلز · ${acc.customerMessages} رسالة عميل · ${acc.shortChats} محادثة قصيرة</p>
+        <p style="font-size:0.8rem; color:var(--text-dim);">${escapeHtml(acc.note || '')}</p>
+      </article>
+    `).join('')}
+  `;
   return section;
 }
 
-// ===== Audio Evidence Cards =====
 function renderAudioEvidence(items) {
   if (!items.length) return null;
   const section = document.createElement('section');
   section.className = 'report-audio-evidence';
   section.dir = 'rtl';
-
-  const title = document.createElement('h3');
-  title.textContent = `التقرير الشامل للتسجيلات الصوتية (${items.length} تسجيل)`;
-  section.appendChild(title);
-
-  for (const item of [...items].sort((a, b) => Number(b.abusive) - Number(a.abusive))) {
-    const card = document.createElement('article');
-    card.className = `audio-evidence-card${item.abusive ? ' audio-evidence-card--abusive' : ''}`;
-    const sender = item.sender === 'sales' ? `السيلز: ${item.accountName || 'غير معروف'}` : `العميل: ${item.customerName || 'غير معروف'}`;
-    card.innerHTML = `
-      <h4>🎤 رسالة صوتية — ${escapeHtml(item.time || item.timestamp || '')} — ${escapeHtml(sender)}</h4>
-      <p class="audio-evidence-classification${item.abusive ? ' audio-evidence-classification--abusive' : ''}">تصنيف المحتوى: ${escapeHtml(item.abuseLabel || 'غير مصنّف')}</p>
-      ${item.abuseReason ? `<p class="audio-evidence-reason">${escapeHtml(item.abuseReason)}</p>` : ''}
-      <p class="audio-evidence-meta">${item.customerPhone ? `واتساب: ${escapeHtml(item.customerPhone)}` : ''} ${item.durationSec ? `· المدة: ${item.durationSec} ثانية` : ''}</p>
-      <strong>التفريغ الصوتي:</strong>
-      <pre class="audio-transcript-raw" dir="auto">${escapeHtml(item.transcript || 'لا يوجد تفريغ متاح.')}</pre>
-      ${item.tone ? `<p class="audio-evidence-tone">نبرة الصوت: ${escapeHtml(item.tone)}</p>` : ''}
-    `;
-    section.appendChild(card);
-  }
+  section.innerHTML = `
+    <h3>التقرير الشامل للتسجيلات الصوتية (${items.length} تسجيل)</h3>
+    ${items.map(item => `
+      <article class="audio-evidence-card${item.abusive ? ' audio-evidence-card--abusive' : ''}">
+        <h4>🎤 رسالة صوتية — ${escapeHtml(item.time || item.timestamp || '')} — ${escapeHtml(item.sender === 'sales' ? item.accountName : item.customerName)}</h4>
+        <p class="audio-evidence-classification${item.abusive ? ' audio-evidence-classification--abusive' : ''}">تصنيف المحتوى: ${escapeHtml(item.abuseLabel || 'غير مصنّف')}</p>
+        ${item.abuseReason ? `<p class="audio-evidence-reason">${escapeHtml(item.abuseReason)}</p>` : ''}
+        <p class="audio-evidence-meta">${item.customerPhone ? `واتساب: ${escapeHtml(item.customerPhone)}` : ''} ${item.durationSec ? `· المدة: ${item.durationSec} ثانية` : ''}</p>
+        <strong>التفريغ الصوتي:</strong>
+        <pre class="audio-transcript-raw" dir="auto">${escapeHtml(item.transcript || 'لا يوجد تفريغ متاح.')}</pre>
+        ${item.tone ? `<p class="audio-evidence-tone">نبرة الصوت: ${escapeHtml(item.tone)}</p>` : ''}
+      </article>
+    `).join('')}
+  `;
   return section;
 }
 
-// ===== Monthly Scores =====
 async function loadMonthlyScores() {
-  const accountId = reportAccountSelect.value || '';
+  const accountId = reportAccountSelect ? reportAccountSelect.value : '';
   try {
-    const res = await fetch(`/api/monthly-scores?accountId=${accountId}`);
+    const res = await fetch(`/api/monthly-scores?accountId=${encodeURIComponent(accountId)}`);
     const data = await res.json();
     if (data.success) {
       renderMonthlyScores(data.scores || []);
@@ -335,7 +584,7 @@ function renderMonthlyScores(scores = []) {
 
   if (latestEvidenceGate && !['last48h', 'last7days'].includes(latestEvidenceGate.period)) {
     const insufficientAccountIds = new Set(Object.values(latestEvidenceGate.evidenceByAccount)
-      .filter(account => account.status === 'insufficient').map(account => account.accountId));
+      .filter(acc => acc.status === 'insufficient').map(acc => acc.accountId));
     scores = scores.filter(row => !(insufficientAccountIds.has(row.account_id) && String(row.score_date).slice(0, 10) === latestEvidenceGate.date));
   }
 
@@ -363,7 +612,6 @@ function renderMonthlyScores(scores = []) {
   }).join('');
 }
 
-// ===== Markdown Formatter =====
 function formatMarkdown(text) {
   if (!text) return '';
   return text
@@ -383,58 +631,6 @@ function formatMarkdown(text) {
     .replace(/(?:<li class="report-bullet">.*<\/li>\n?)+/g, match => `<ul class="report-list">${match}</ul>`);
 }
 
-function addPhoneCopyControls(container) {
-  const phonePattern = /(?<![\p{L}\p{N}])(?:\+\s?[0-9٠-٩۰-۹](?:[\s().-]*[0-9٠-٩۰-۹]){7,14}|01[0125](?:[\s().-]*[0-9٠-٩۰-۹]){8})(?![\p{L}\p{N}])/gu;
-  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
-      const parent = node.parentElement;
-      if (!parent || parent.closest('button, a, code, pre, script, style, .report-phone-copy')) return NodeFilter.FILTER_REJECT;
-      return NodeFilter.FILTER_ACCEPT;
-    }
-  });
-  const textNodes = [];
-  while (walker.nextNode()) textNodes.push(walker.currentNode);
-  for (const node of textNodes) {
-    const text = node.nodeValue;
-    phonePattern.lastIndex = 0;
-    let match;
-    let cursor = 0;
-    const fragment = document.createDocumentFragment();
-    let changed = false;
-    while ((match = phonePattern.exec(text))) {
-      const raw = match[0];
-      const digits = raw.replace(/\D/g, '');
-      if (digits.length < 10 || digits.length > 15) continue;
-      if (match.index > cursor) fragment.appendChild(document.createTextNode(text.slice(cursor, match.index)));
-      const wrapper = document.createElement('span');
-      wrapper.className = 'report-phone-copy';
-      const number = document.createElement('bdi');
-      number.dir = 'ltr';
-      number.textContent = raw;
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'copy-phone-inline';
-      button.textContent = 'نسخ';
-      button.onclick = (e) => {
-        e.stopPropagation();
-        navigator.clipboard.writeText(raw);
-        button.textContent = '✓';
-        setTimeout(() => button.textContent = 'نسخ', 1500);
-      };
-      wrapper.append(number, button);
-      fragment.appendChild(wrapper);
-      cursor = match.index + raw.length;
-      changed = true;
-    }
-    if (changed) {
-      if (cursor < text.length) fragment.appendChild(document.createTextNode(text.slice(cursor)));
-      node.parentNode.replaceChild(fragment, node);
-    }
-  }
-}
-
-// ===== Duration Formatter =====
 function formatDuration(seconds, isLowerBound = false) {
   if (seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) return '—';
   const prefix = isLowerBound ? '≥ ' : '';
@@ -442,29 +638,31 @@ function formatDuration(seconds, isLowerBound = false) {
   if (total < 60) return `${prefix}${total} ثانية`;
   const minutes = Math.floor(total / 60);
   const remainingSeconds = total % 60;
-  if (minutes < 60) {
-    return remainingSeconds ? `${prefix}${minutes} دقيقة · ${remainingSeconds} ث` : `${prefix}${minutes} دقيقة`;
-  }
+  if (minutes < 60) return `${prefix}${minutes} دقيقة · ${remainingSeconds} ث`;
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
-  if (hours < 24) {
-    return remainingMinutes ? `${prefix}${hours} س · ${remainingMinutes} د` : `${prefix}${hours} ساعة`;
-  }
+  if (hours < 24) return `${prefix}${hours} س · ${remainingMinutes} د`;
   const days = Math.floor(hours / 24);
-  const remainingHours = hours % 24;
-  return remainingHours ? `${prefix}${days} يوم · ${remainingHours} س` : `${prefix}${days} يوم`;
+  return `${prefix}${days} يوم`;
 }
 
 function escapeHtml(str) {
   return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function showReportError(msg) {
-  reportError.classList.remove('hidden');
-  document.getElementById('error-message').textContent = msg;
+function escapeAttr(str) {
+  return String(str || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-// ===== Actions: Copy / Print / Export =====
+function showReportError(msg) {
+  const el = document.getElementById('report-error');
+  if (el) {
+    el.classList.remove('hidden');
+    document.getElementById('error-message').textContent = msg;
+  }
+}
+
+// ===== Actions =====
 window.copyReport = function() {
   if (!reportData || !reportData.report) return;
   navigator.clipboard.writeText(reportData.report).then(() => {
@@ -489,7 +687,7 @@ window.exportCsvLeads = function() {
   const scores = reportData.scores || [];
   const stats = reportData.currentStats || {};
 
-  let csvContent = '\uFEFF'; // BOM UTF-8 for Excel Arabic support
+  let csvContent = '\uFEFF';
   csvContent += 'الحساب,إجمالي الرسائل,رسائل السيلز,رسائل العملاء,المحادثات,التقييم,أهم فرصة تطوير\n';
 
   for (const score of scores) {
@@ -497,10 +695,10 @@ window.exportCsvLeads = function() {
     const totalMsgs = accStats.totalMessages || 0;
     const salesMsgs = accStats.salesMessages || 0;
     const custMsgs = accStats.customerMessages || 0;
-    const chats = accStats.chats || 0;
+    const chatsCount = accStats.chats || 0;
     const overall = score.overallScore ?? '—';
     const improvement = (score.improvement || '—').replace(/[\r\n",]+/g, ' ');
-    csvContent += `"${score.accountName || ''}",${totalMsgs},${salesMsgs},${custMsgs},${chats},"${overall}","${improvement}"\n`;
+    csvContent += `"${score.accountName || ''}",${totalMsgs},${salesMsgs},${custMsgs},${chatsCount},"${overall}","${improvement}"\n`;
   }
 
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -515,7 +713,7 @@ window.exportCsvLeads = function() {
   showToast('تم تصدير ملف Excel بنجاح', 'success');
 };
 
-// ===== Schedules Overview Modal =====
+// ===== Modals =====
 window.openWorkSchedulesModal = function() {
   const modalEl = document.getElementById('schedules-modal');
   const container = document.getElementById('schedules-accounts-list');
@@ -523,7 +721,7 @@ window.openWorkSchedulesModal = function() {
 
   container.innerHTML = '';
   if (!accounts || accounts.length === 0) {
-    container.innerHTML = '<p class="modal-intro" style="text-align:center; padding: 20px;">لا توجد حسابات مبيعات مسجلة حالياً.</p>';
+    container.innerHTML = '<p style="text-align:center; padding: 20px;">لا توجد حسابات مبيعات مسجلة حالياً.</p>';
   } else {
     for (const acc of accounts) {
       const schedule = acc.schedule || { enabled: true, start: '10:00', end: '19:00', workDays: [6, 0, 1, 2, 3, 4] };
@@ -562,11 +760,10 @@ window.closeWorkSchedulesModal = function() {
   if (modalEl) modalEl.classList.add('hidden');
 };
 
-// ===== Add / Edit Account Modal =====
 window.openAddAccountModal = function() {
   closeWorkSchedulesModal();
   editingAccountId = null;
-  document.getElementById('modal-title').textContent = 'إضافة ممثل مبيعات جديد';
+  document.getElementById('modal-title').textContent = 'إضافة ممثل مبيعات / خط جديد';
   document.getElementById('account-name-input').value = '';
   setScheduleToModal(null);
   document.getElementById('name-modal').classList.remove('hidden');
@@ -616,7 +813,7 @@ function getScheduleFromModal() {
 window.saveAccountFromModal = async function() {
   const name = document.getElementById('account-name-input').value.trim();
   if (!name) {
-    showToast('يرجى كتابة اسم الموظف', 'error');
+    showToast('يرجى كتابة اسم الموظف / الخط', 'error');
     return;
   }
 
@@ -646,16 +843,15 @@ window.saveAccountFromModal = async function() {
     if (data.success) {
       showToast('تم حفظ التعديلات بنجاح', 'success');
       closeModal();
-      renderAccountSelect();
+      populateAccountDropdowns();
     } else {
       showToast('فشل حفظ الحسابات: ' + (data.error || ''), 'error');
     }
   } catch (err) {
-    showToast('خطأ في الاتصال بالخادم: ' + err.message, 'error');
+    showToast('خطأ في الاتصال: ' + err.message, 'error');
   }
 };
 
-// ===== Settings Modal (Excluded Phone Numbers) =====
 window.openSettingsModal = async function() {
   const modal = document.getElementById('settings-modal');
   const textarea = document.getElementById('excluded-phones-input');
@@ -697,69 +893,57 @@ window.saveInternalSettings = async function() {
   }
 };
 
-// ===== Messages Preview Modal =====
 window.openMessagesPreview = async function() {
   const modal = document.getElementById('messages-modal');
   const container = document.getElementById('messages-list-container');
   const countLabel = document.getElementById('messages-count-label');
 
-  container.innerHTML = '<div class="preview-loading" style="padding:30px; text-align:center;">جاري جلب الرسائل من قاعدة البيانات...</div>';
+  container.innerHTML = '<div style="padding:30px; text-align:center;">جاري جلب الرسائل...</div>';
   modal.classList.remove('hidden');
 
   try {
     const accountId = reportAccountSelect.value || '';
-    const res = await fetch(`/api/messages-preview?period=${currentPeriod}&accountId=${accountId}`);
+    const res = await fetch(`/api/messages-preview?period=${currentPeriod}&accountId=${encodeURIComponent(accountId)}`);
     const data = await res.json();
     if (data.success && Array.isArray(data.messages)) {
-      renderMessagesList(data.messages);
       if (countLabel) countLabel.textContent = `${data.messages.length} رسالة`;
+      container.innerHTML = data.messages.map(msg => `
+        <div style="padding:10px 14px; border-bottom:1px solid #1f2d33; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <span style="font-weight:700; color:${msg.sender === 'sales' ? '#53bdeb' : '#00d26a'};">${msg.sender === 'sales' ? '👔 سيلز' : '👤 عميل'}</span>
+            <span style="margin-right:8px; color:#8696a0; font-size:0.8rem;">${escapeHtml(msg.customer_name || msg.customer_phone || '')}</span>
+            <p style="margin:4px 0 0 0; font-size:0.9rem; color:#e9edef;">${escapeHtml(msg.text || '')}</p>
+          </div>
+          <span style="font-size:0.75rem; color:#8696a0;">${escapeHtml(msg.display_time || '')}</span>
+        </div>
+      `).join('');
     } else {
-      container.innerHTML = '<div class="preview-empty" style="padding:20px;">لا توجد رسائل مسجلة.</div>';
+      container.innerHTML = '<div style="padding:20px;">لا توجد رسائل.</div>';
     }
   } catch (err) {
-    container.innerHTML = `<div class="preview-empty" style="color:red; padding:20px;">خطأ: ${err.message}</div>`;
+    container.innerHTML = `<div style="color:red; padding:20px;">خطأ: ${err.message}</div>`;
   }
 };
-
-function renderMessagesList(messages) {
-  const container = document.getElementById('messages-list-container');
-  if (!messages || messages.length === 0) {
-    container.innerHTML = '<div class="preview-empty" style="padding:20px; text-align:center;">لا توجد رسائل مسجلة في هذه الفترة.</div>';
-    return;
-  }
-  container.innerHTML = messages.map(msg => `
-    <div class="msg-preview-item" style="padding:10px 14px; border-bottom:1px solid #1f2d33; display:flex; justify-content:space-between; align-items:center;">
-      <div>
-        <span style="font-weight:700; color:${msg.sender === 'sales' ? '#53bdeb' : '#00d26a'};">${msg.sender === 'sales' ? '👔 سيلز' : '👤 عميل'}</span>
-        <span style="margin-right:8px; color:#8696a0; font-size:0.8rem;">${escapeHtml(msg.customer_name || msg.customer_phone || '')}</span>
-        <p style="margin:4px 0 0 0; font-size:0.9rem; color:#e9edef;">${escapeHtml(msg.text || '')}</p>
-      </div>
-      <span style="font-size:0.75rem; color:#8696a0; white-space:nowrap;">${escapeHtml(msg.display_time || String(msg.timestamp || '').slice(11, 19))}</span>
-    </div>
-  `).join('');
-}
 
 window.closeMessagesModal = function() {
   document.getElementById('messages-modal').classList.add('hidden');
 };
 
-// ===== Test Gemini Connection =====
 window.testGeminiConnection = async function() {
-  showToast('جاري اختبار الاتصال بمحرك Gemini AI...', 'info');
+  showToast('جاري فحص اتصال Gemini AI...', 'info');
   try {
     const res = await fetch('/api/test-gemini');
     const data = await res.json();
     if (data.success) {
-      showToast(`✅ الاتصال ناجح: ${data.message || 'النموذج جاهز للتحليل'}`, 'success');
+      showToast(`✅ الاتصال ناجح: ${data.message || 'النموذج جاهز'}`, 'success');
     } else {
-      showToast(`❌ فشل الاتصال: ${data.error || 'خطأ غير معروف'}`, 'error');
+      showToast(`❌ فشل الاتصال: ${data.error || 'خطأ'}`, 'error');
     }
   } catch (err) {
-    showToast(`❌ خطأ في الاتصال: ${err.message}`, 'error');
+    showToast(`❌ خطأ: ${err.message}`, 'error');
   }
 };
 
-// ===== Toast Notifications =====
 function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
   if (!container) return;

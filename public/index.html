@@ -3,95 +3,482 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Whatsi Z-ray | لوحة تحكم ومراقبة فريق المبيعات</title>
+  <title>Whatsi Z-ray | منظومة المحادثات الحية وتدقيق المبيعات</title>
   <link rel="icon" type="image/png" href="whatsi.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <style>
-    /* تحسينات خاصة بلوحة الويب المستقلة */
+    /* Styling for Dual-View (WhatsApp Web + AI Dashboard) */
     body {
-      background: var(--bg-darkest, #0b141a);
-      color: var(--text-primary, #e9edef);
-      font-family: var(--font-main, 'Cairo', sans-serif);
+      background: #0c1317;
+      color: #e9edef;
+      font-family: 'Cairo', sans-serif;
       margin: 0;
       padding: 0;
-      overflow-y: auto;
-      overflow-x: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
     }
 
-    .web-dashboard-container {
-      max-width: 1350px;
-      margin: 0 auto;
-      padding: 20px 24px 60px 24px;
-    }
-
-    .web-navbar {
+    /* Top Global Navigation Bar */
+    .top-app-header {
+      background: #111b21;
+      border-bottom: 1px solid #202c33;
+      padding: 10px 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 16px 20px;
-      background: var(--bg-dark, #111b21);
-      border: 1px solid var(--border-color, #222d34);
-      border-radius: var(--radius-lg, 14px);
-      margin-bottom: 20px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
-      flex-wrap: wrap;
-      gap: 16px;
+      flex-shrink: 0;
+      z-index: 100;
     }
 
-    .web-brand {
+    .app-brand {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
     }
 
-    .web-brand-logo {
-      width: 46px;
-      height: 46px;
-      border-radius: 12px;
+    .app-brand-logo {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
       object-fit: cover;
-      box-shadow: 0 2px 10px rgba(0, 168, 132, 0.3);
     }
 
-    .web-brand-title {
-      font-size: 1.25rem;
+    .app-brand-title {
+      font-size: 1.15rem;
       font-weight: 800;
-      color: var(--text-primary, #fff);
+      color: #fff;
       margin: 0;
       display: flex;
       align-items: center;
+      gap: 8px;
+    }
+
+    .app-nav-tabs {
+      display: flex;
+      gap: 8px;
+      background: #0b141a;
+      padding: 4px;
+      border-radius: 10px;
+      border: 1px solid #222d34;
+    }
+
+    .app-nav-btn {
+      background: none;
+      border: none;
+      color: #8696a0;
+      font-family: inherit;
+      font-size: 0.9rem;
+      font-weight: 700;
+      padding: 8px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .app-nav-btn:hover {
+      color: #e9edef;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .app-nav-btn.active {
+      background: #00a884;
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(0, 168, 132, 0.3);
+    }
+
+    .live-status-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.78rem;
+      color: #00d26a;
+      background: rgba(0, 210, 106, 0.1);
+      padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid rgba(0, 210, 106, 0.25);
+    }
+
+    .live-pulse-dot {
+      width: 7px;
+      height: 7px;
+      background: #00d26a;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #00d26a;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 0.4; }
+      50% { opacity: 1; }
+      100% { opacity: 0.4; }
+    }
+
+    /* Main Content Container */
+    .app-main-viewport {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .viewport-view {
+      position: absolute;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+    }
+
+    .viewport-view.active {
+      display: flex;
+    }
+
+    /* ===== 1. LIVE WHATSAPP VIEW STYLES ===== */
+    .whatsapp-full-container {
+      display: flex;
+      height: 100%;
+      background: #111b21;
+    }
+
+    /* Sidebar Chats List */
+    .wa-chats-sidebar {
+      width: 380px;
+      background: #111b21;
+      border-left: 1px solid #222d34;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .wa-sidebar-header {
+      padding: 12px 16px;
+      background: #202c33;
+      border-bottom: 1px solid #222d34;
+      display: flex;
+      flex-direction: column;
       gap: 10px;
     }
 
-    .web-brand-badge {
-      font-size: 0.72rem;
-      font-weight: 700;
-      padding: 3px 8px;
-      border-radius: 20px;
-      background: rgba(0, 168, 132, 0.15);
-      color: var(--accent-teal, #00a884);
-      border: 1px solid rgba(0, 168, 132, 0.35);
+    .wa-account-selector-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
 
-    .web-brand-subtitle {
-      font-size: 0.8rem;
-      color: var(--text-secondary, #8696a0);
+    .wa-account-select {
+      background: #111b21;
+      color: #e9edef;
+      border: 1px solid #2a3942;
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-family: inherit;
+      font-size: 0.82rem;
+      direction: rtl;
+      cursor: pointer;
+      outline: none;
+      flex: 1;
+    }
+
+    .wa-search-box {
+      display: flex;
+      align-items: center;
+      background: #111b21;
+      border-radius: 8px;
+      padding: 6px 12px;
+      gap: 8px;
+      border: 1px solid #2a3942;
+    }
+
+    .wa-search-input {
+      background: none;
+      border: none;
+      color: #e9edef;
+      font-family: inherit;
+      font-size: 0.85rem;
+      width: 100%;
+      outline: none;
+    }
+
+    .wa-chat-list-scroll {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .wa-chat-item {
+      display: flex;
+      align-items: center;
+      padding: 12px 16px;
+      gap: 12px;
+      cursor: pointer;
+      border-bottom: 1px solid #1f2c34;
+      transition: background 0.15s ease;
+      position: relative;
+    }
+
+    .wa-chat-item:hover {
+      background: #202c33;
+    }
+
+    .wa-chat-item.active {
+      background: #2a3942;
+    }
+
+    .wa-chat-avatar {
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #00a884, #005c4b);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1.05rem;
+      flex-shrink: 0;
+    }
+
+    .wa-chat-info {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .wa-chat-top-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .wa-chat-name {
+      font-weight: 600;
+      color: #e9edef;
+      font-size: 0.95rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .wa-chat-time {
+      font-size: 0.72rem;
+      color: #8696a0;
+      flex-shrink: 0;
+    }
+
+    .wa-chat-bottom-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.82rem;
+      color: #8696a0;
+    }
+
+    .wa-chat-snippet {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+
+    .wa-chat-badge {
+      background: #00a884;
+      color: #111b21;
+      font-size: 0.7rem;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 10px;
+      margin-right: 6px;
+    }
+
+    /* Active Conversation Panel */
+    .wa-conversation-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #0b141a;
+      position: relative;
+    }
+
+    /* WhatsApp Doodle Background Pattern simulation */
+    .wa-conversation-panel::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(#182229 1px, transparent 1px);
+      background-size: 20px 20px;
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .wa-chat-header {
+      background: #202c33;
+      padding: 10px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #2a3942;
+      z-index: 10;
+    }
+
+    .wa-header-user {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .wa-header-details h3 {
+      margin: 0;
+      font-size: 1rem;
+      color: #e9edef;
+    }
+
+    .wa-header-details p {
       margin: 2px 0 0 0;
+      font-size: 0.78rem;
+      color: #8696a0;
+    }
+
+    .wa-chat-messages-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 30px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      z-index: 5;
+    }
+
+    /* Chat Bubbles */
+    .wa-msg-bubble {
+      max-width: 65%;
+      padding: 8px 12px 6px 12px;
+      border-radius: 8px;
+      font-size: 0.92rem;
+      line-height: 1.45;
+      position: relative;
+      word-break: break-word;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    }
+
+    .wa-msg-bubble.sales {
+      align-self: flex-start;
+      background: #005c4b;
+      color: #e9edef;
+      border-top-right-radius: 0;
+    }
+
+    .wa-msg-bubble.customer {
+      align-self: flex-end;
+      background: #202c33;
+      color: #e9edef;
+      border-top-left-radius: 0;
+    }
+
+    .wa-msg-sender-tag {
+      font-size: 0.72rem;
+      font-weight: 700;
+      margin-bottom: 3px;
+    }
+
+    .wa-msg-bubble.sales .wa-msg-sender-tag { color: #53bdeb; }
+    .wa-msg-bubble.customer .wa-msg-sender-tag { color: #00a884; }
+
+    .wa-msg-text {
+      margin: 0;
+      white-space: pre-wrap;
+    }
+
+    .wa-msg-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 4px;
+      font-size: 0.68rem;
+      color: rgba(233, 237, 239, 0.6);
+      margin-top: 4px;
+    }
+
+    /* Audio Voice Note Bubble */
+    .wa-audio-card {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      padding: 8px;
+      margin-top: 4px;
+      border-right: 3px solid #00a884;
+    }
+
+    .wa-audio-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #00d26a;
+    }
+
+    .wa-audio-transcript {
+      font-size: 0.86rem;
+      color: #e9edef;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 6px 10px;
+      border-radius: 6px;
+      margin: 6px 0;
+      white-space: pre-wrap;
+      direction: auto;
+    }
+
+    .wa-audio-tone-badge {
+      font-size: 0.72rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(83, 189, 235, 0.15);
+      color: #53bdeb;
+      display: inline-block;
+    }
+
+    .wa-empty-chat-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #8696a0;
+      gap: 12px;
+      z-index: 5;
+    }
+
+    .wa-empty-chat-state h3 {
+      color: #e9edef;
+      margin: 0;
+    }
+
+    /* ===== 2. AI DASHBOARD VIEW STYLES ===== */
+    .web-dashboard-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px 60px 24px;
     }
 
     .web-kpi-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
       gap: 14px;
       margin-bottom: 22px;
     }
 
     .web-kpi-card {
-      background: var(--bg-dark, #111b21);
-      border: 1px solid var(--border-color, #222d34);
-      border-radius: var(--radius-md, 12px);
+      background: #111b21;
+      border: 1px solid #222d34;
+      border-radius: 12px;
       padding: 16px;
       display: flex;
       flex-direction: column;
@@ -107,13 +494,13 @@
     .web-kpi-value {
       font-size: 1.8rem;
       font-weight: 800;
-      color: var(--text-primary, #fff);
+      color: #fff;
       line-height: 1;
     }
 
     .web-kpi-label {
       font-size: 0.82rem;
-      color: var(--text-secondary, #8696a0);
+      color: #8696a0;
       display: flex;
       align-items: center;
       gap: 6px;
@@ -124,13 +511,11 @@
     .web-kpi-card.leads .web-kpi-value { color: #ffb020; }
     .web-kpi-card.followup .web-kpi-value { color: #b388ff; }
 
-    /* تعديل استجابة العرض على الشاشات الكبيرة والصغيرة */
     .report-view {
       position: static;
       display: flex;
       flex-direction: column;
       height: auto;
-      min-height: 600px;
     }
 
     .report-content-area {
@@ -138,198 +523,262 @@
       height: auto;
       flex: none;
     }
-
-    @media (max-width: 768px) {
-      .web-dashboard-container {
-        padding: 12px;
-      }
-      .report-header-actions {
-        flex-direction: column;
-        align-items: stretch;
-      }
-      .report-toolbar {
-        flex-wrap: wrap;
-      }
-    }
   </style>
 </head>
 <body>
-  <div class="web-dashboard-container">
-    
-    <!-- Navbar / Branding Header -->
-    <header class="web-navbar">
-      <div class="web-brand">
-        <img src="whatsi.png" alt="Whatsi Logo" class="web-brand-logo" />
-        <div>
-          <h1 class="web-brand-title">
-            Whatsi Z-ray
-            <span class="web-brand-badge">Live Multi-User Dashboard</span>
-          </h1>
-          <p class="web-brand-subtitle">نظام التدقيق والرقابة الذكية على محادثات فريق المبيعات بتوقيت القاهرة</p>
-        </div>
-      </div>
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <span id="system-status-indicator" style="font-size: 0.8rem; color: #00d26a; display: flex; align-items: center; gap: 6px;">
-          <span style="width: 8px; height: 8px; background: #00d26a; border-radius: 50%; display: inline-block;"></span>
-          النظام متصل وقاعدة البيانات نشطة
-        </span>
-      </div>
-    </header>
 
-    <!-- Top KPI Overview Cards -->
-    <section class="web-kpi-grid">
-      <div class="web-kpi-card">
-        <div class="web-kpi-value" id="stat-chats">0</div>
-        <div class="web-kpi-label">💬 إجمالي المحادثات</div>
+  <!-- Top Global Header & Navigation -->
+  <header class="top-app-header">
+    <div class="app-brand">
+      <img src="whatsi.png" alt="Whatsi Logo" class="app-brand-logo" />
+      <div>
+        <h1 class="app-brand-title">
+          Whatsi Z-ray
+          <span style="font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 20px; background: rgba(0,168,132,0.15); color: #00a884; border: 1px solid rgba(0,168,132,0.3);">Enterprise</span>
+        </h1>
       </div>
-      <div class="web-kpi-card">
-        <div class="web-kpi-value" id="stat-messages">0</div>
-        <div class="web-kpi-label">📩 إجمالي الرسائل</div>
-      </div>
-      <div class="web-kpi-card sales">
-        <div class="web-kpi-value" id="stat-sales-messages">0</div>
-        <div class="web-kpi-label">👔 رسائل المبيعات</div>
-      </div>
-      <div class="web-kpi-card customer">
-        <div class="web-kpi-value" id="stat-customer-messages">0</div>
-        <div class="web-kpi-label">👤 رسائل العملاء</div>
-      </div>
-      <div class="web-kpi-card leads">
-        <div class="web-kpi-value" id="stat-leads">0</div>
-        <div class="web-kpi-label">🎯 ليدات جديدة اليوم</div>
-      </div>
-      <div class="web-kpi-card followup">
-        <div class="web-kpi-value" id="stat-followups">0</div>
-        <div class="web-kpi-label">🔄 متابعات (فولو أب)</div>
+    </div>
+
+    <!-- Dual View Switcher Buttons -->
+    <nav class="app-nav-tabs">
+      <button class="app-nav-btn active" id="tab-btn-whatsapp" onclick="switchMainTab('whatsapp')">
+        <span>💬 المحادثات الحية (WhatsApp)</span>
+      </button>
+      <button class="app-nav-btn" id="tab-btn-dashboard" onclick="switchMainTab('dashboard')">
+        <span>📊 لوحة التقارير والتدقيق (AI Dashboard)</span>
+      </button>
+    </nav>
+
+    <div class="live-status-pill">
+      <span class="live-pulse-dot"></span>
+      <span id="sse-status-label">مزامنة لحظية نشطة (Live Sync)</span>
+    </div>
+  </header>
+
+  <!-- Main Viewport -->
+  <div class="app-main-viewport">
+
+    <!-- VIEW 1: LIVE WHATSAPP CHATS VIEW -->
+    <section id="view-whatsapp" class="viewport-view active">
+      <div class="whatsapp-full-container">
+        
+        <!-- Sidebar Chats List -->
+        <aside class="wa-chats-sidebar">
+          <div class="wa-sidebar-header">
+            <div class="wa-account-selector-row">
+              <select id="wa-filter-account" class="wa-account-select" onchange="filterChatsByAccount()">
+                <option value="">جميع خطوط المبيعات (كل الحسابات)</option>
+              </select>
+            </div>
+            <div class="wa-search-box">
+              <span style="color:#8696a0;">🔍</span>
+              <input type="text" id="wa-search-input" class="wa-search-input" placeholder="بحث بالاسم أو رقم الهاتف..." oninput="handleChatSearch(event)" />
+            </div>
+          </div>
+
+          <!-- Chat List -->
+          <div class="wa-chat-list-scroll" id="wa-chat-list-container">
+            <div style="padding: 30px; text-align: center; color: #8696a0;">جاري تحميل المحادثات...</div>
+          </div>
+        </aside>
+
+        <!-- Active Chat Window -->
+        <main class="wa-conversation-panel" id="wa-conversation-panel">
+          
+          <!-- Empty State (No Chat Selected) -->
+          <div class="wa-empty-chat-state" id="wa-empty-chat-state">
+            <img src="whatsi.png" style="width: 80px; height: 80px; opacity: 0.8; border-radius: 20px;" />
+            <h3>اختر محادثة لعرض الرسائل والتسجيلات الصوتية</h3>
+            <p>يتم بث كل رسالة نصية أو فويس نوت لحظياً ثانية بثانية مع التفريغ الصوتي ونبرة الصوت.</p>
+          </div>
+
+          <!-- Active Conversation -->
+          <div id="wa-active-chat-content" style="display: none; height: 100%; flex-direction: column;">
+            
+            <!-- Chat Header -->
+            <div class="wa-chat-header">
+              <div class="wa-header-user">
+                <div class="wa-chat-avatar" id="wa-active-avatar">ع</div>
+                <div class="wa-header-details">
+                  <h3 id="wa-active-name">اسم العميل</h3>
+                  <p id="wa-active-meta">رقم الهاتف · خط السيلز</p>
+                </div>
+              </div>
+              <div>
+                <button class="action-btn refresh-btn" onclick="reloadCurrentChatMessages()" title="تحديث الرسائل">🔄 تحديث</button>
+              </div>
+            </div>
+
+            <!-- Messages Stream Area -->
+            <div class="wa-chat-messages-scroll" id="wa-chat-messages-scroll"></div>
+          </div>
+
+        </main>
       </div>
     </section>
 
-    <!-- Main Report Container -->
-    <main class="report-view">
-      
-      <!-- Report Header Filters -->
-      <div class="report-header">
-        <div class="report-header-info">
-          <h2 class="report-title">تقرير أداء وجودة فريق المبيعات</h2>
-          <p class="report-subtitle" id="report-subtitle-text"></p>
-        </div>
-        <div class="report-header-actions">
-          <div class="report-account-filter">
-            <label for="report-account">الحساب:</label>
-            <select id="report-account">
-              <option value="">كل الحسابات</option>
-            </select>
-          </div>
-          <div class="report-period-actions" role="group" aria-label="فترة التقرير">
-            <button class="period-btn active" id="report-today-btn" onclick="setPeriodAndGenerate('today')">تقرير اليوم</button>
-            <button class="period-btn" id="report-yesterday-btn" onclick="setPeriodAndGenerate('yesterday')">تقرير أمس</button>
-            <button class="period-btn" id="report-last48-btn" onclick="setPeriodAndGenerate('last48h')">تقرير آخر 48 ساعة</button>
-            <button class="period-btn" id="report-last7days-btn" onclick="setPeriodAndGenerate('last7days')">تقرير آخر 7 أيام</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Quick Action Toolbar -->
-      <div class="report-toolbar">
-        <button class="toolbar-btn" onclick="openWorkSchedulesModal()" title="تحديد مواعيد وساعات عمل الموظفين المحددة">
-          <span class="tb-icon">⏰</span>
-          <span>مواعيد وساعات العمل</span>
-        </button>
-        <button class="toolbar-btn" onclick="testGeminiConnection()" title="فحص مفتاح وصلاحية Gemini API">
-          <span class="tb-icon">⚡</span>
-          <span>فحص اتصال Gemini</span>
-        </button>
-        <button class="toolbar-btn" onclick="openMessagesPreview()" title="عرض الرسائل المسجلة في قاعدة البيانات">
-          <span class="tb-icon">📋</span>
-          <span>سجل الرسائل الملتقطة</span>
-        </button>
-        <button class="toolbar-btn" onclick="openSettingsModal()" title="إعدادات أرقام الفريق المستبعدة">
-          <span class="tb-icon">🛡️</span>
-          <span>أرقام الفريق المستبعدة</span>
-        </button>
-        <button class="toolbar-btn" onclick="refreshLiveData()" title="تحديث الإحصائيات الفورية">
-          <span class="tb-icon">🔄</span>
-          <span>تحديث الإحصائيات</span>
-        </button>
-      </div>
-
-      <!-- Report Content Area -->
-      <div class="report-content-area" id="report-content-area">
+    <!-- VIEW 2: AI AUDIT & REPORT DASHBOARD -->
+    <section id="view-dashboard" class="viewport-view">
+      <div class="web-dashboard-scroll">
         
-        <!-- Empty State -->
-        <div class="report-empty" id="report-empty">
-          <div style="font-size: 3rem; margin-bottom: 12px;">📊</div>
-          <h3>جاهز لاستخراج تقرير الجودة والرقابة</h3>
-          <p>اضغط على زر "⚡ استخراج تقرير الجودة الآن" أو اختر الفترة المطلوبة ليقوم الذكاء الاصطناعي بتحليل الأداء ورصد سرعة الرد ومتابعة العملاء.</p>
-          <button class="action-btn refresh-btn" style="margin-top: 16px;" onclick="generateReport()">⚡ استخراج تقرير الجودة الآن</button>
-        </div>
-
-        <!-- Loading State -->
-        <div class="report-loading hidden" id="report-loading">
-          <div class="ai-loader">
-            <div class="ai-brain">🧠</div>
-            <div class="ai-waves">
-              <div class="wave"></div>
-              <div class="wave"></div>
-              <div class="wave"></div>
-            </div>
+        <!-- Top KPI Overview Cards -->
+        <section class="web-kpi-grid">
+          <div class="web-kpi-card">
+            <div class="web-kpi-value" id="stat-chats">0</div>
+            <div class="web-kpi-label">💬 إجمالي المحادثات</div>
           </div>
-          <h3>جيمناي يحلل المحادثات الآن...</h3>
-          <p id="loading-progress">يقرأ كل الشاتات المسجلة في الفترة المحددة</p>
-        </div>
-
-        <!-- Report Output -->
-        <div class="report-output hidden" id="report-output">
-          <div class="report-actions" style="margin-bottom: 16px;">
-            <button class="action-btn copy-btn" onclick="copyReport()">📋 نسخ التقرير</button>
-            <button class="action-btn print-btn" onclick="printReport()">🖨️ طباعة / PDF</button>
-            <button class="action-btn export-btn" onclick="exportCsvLeads()">📊 تصدير Excel للعملاء</button>
-            <button class="action-btn refresh-btn" onclick="generateReport()">🔄 إعادة التحليل</button>
+          <div class="web-kpi-card">
+            <div class="web-kpi-value" id="stat-messages">0</div>
+            <div class="web-kpi-label">📩 إجمالي الرسائل</div>
           </div>
-          <div class="report-text" id="report-text"></div>
-        </div>
-
-        <!-- Monthly Scores Panel -->
-        <section class="monthly-scores-panel" id="monthly-scores-panel" style="margin-top: 24px;">
-          <div class="monthly-scores-heading">
-            <div>
-              <h2>تطور تقييم السيلز هذا الشهر</h2>
-              <p>يُحفظ تقييم كل يوم عند استخراج تقرير اليوم.</p>
-            </div>
-            <span class="monthly-score-month" id="monthly-score-month"></span>
+          <div class="web-kpi-card sales">
+            <div class="web-kpi-value" id="stat-sales-messages">0</div>
+            <div class="web-kpi-label">👔 رسائل المبيعات</div>
           </div>
-          <div class="monthly-scores-table-wrap">
-            <table class="monthly-scores-table">
-              <thead>
-                <tr>
-                  <th>التاريخ</th>
-                  <th>السيلز</th>
-                  <th>التقييم</th>
-                  <th>ليدات</th>
-                  <th>فولو أب</th>
-                  <th>محادثات</th>
-                  <th>أهم فرصة تطوير</th>
-                </tr>
-              </thead>
-              <tbody id="monthly-scores-body">
-                <tr><td colspan="7" class="scores-empty">لا توجد تقييمات محفوظة لهذا الشهر بعد.</td></tr>
-              </tbody>
-            </table>
+          <div class="web-kpi-card customer">
+            <div class="web-kpi-value" id="stat-customer-messages">0</div>
+            <div class="web-kpi-label">👤 رسائل العملاء</div>
+          </div>
+          <div class="web-kpi-card leads">
+            <div class="web-kpi-value" id="stat-leads">0</div>
+            <div class="web-kpi-label">🎯 ليدات جديدة اليوم</div>
+          </div>
+          <div class="web-kpi-card followup">
+            <div class="web-kpi-value" id="stat-followups">0</div>
+            <div class="web-kpi-label">🔄 متابعات (فولو أب)</div>
           </div>
         </section>
 
-        <!-- Error State -->
-        <div class="report-error hidden" id="report-error">
-          <div class="error-icon" id="error-icon">ℹ️</div>
-          <h3 id="error-title">تنبيه أثناء استخراج التقرير</h3>
-          <p id="error-message"></p>
-          <div class="error-actions" id="error-actions-container">
-            <button class="action-btn" onclick="generateReport()">🔄 إعادة المحاولة</button>
+        <!-- Main Report Section -->
+        <div class="report-view">
+          
+          <!-- Filters Header -->
+          <div class="report-header">
+            <div class="report-header-info">
+              <h2 class="report-title">تقرير أداء وجودة فريق المبيعات</h2>
+              <p class="report-subtitle" id="report-subtitle-text"></p>
+            </div>
+            <div class="report-header-actions">
+              <div class="report-account-filter">
+                <label for="report-account">الحساب:</label>
+                <select id="report-account">
+                  <option value="">كل الحسابات</option>
+                </select>
+              </div>
+              <div class="report-period-actions" role="group" aria-label="فترة التقرير">
+                <button class="period-btn active" id="report-today-btn" onclick="setPeriodAndGenerate('today')">تقرير اليوم</button>
+                <button class="period-btn" id="report-yesterday-btn" onclick="setPeriodAndGenerate('yesterday')">تقرير أمس</button>
+                <button class="period-btn" id="report-last48-btn" onclick="setPeriodAndGenerate('last48h')">تقرير آخر 48 ساعة</button>
+                <button class="period-btn" id="report-last7days-btn" onclick="setPeriodAndGenerate('last7days')">تقرير آخر 7 أيام</button>
+              </div>
+            </div>
           </div>
+
+          <!-- Quick Action Toolbar -->
+          <div class="report-toolbar">
+            <button class="toolbar-btn" onclick="openWorkSchedulesModal()" title="تحديد مواعيد وساعات عمل الموظفين">
+              <span class="tb-icon">⏰</span>
+              <span>مواعيد وساعات العمل</span>
+            </button>
+            <button class="toolbar-btn" onclick="testGeminiConnection()" title="فحص اتصال Gemini">
+              <span class="tb-icon">⚡</span>
+              <span>فحص اتصال Gemini</span>
+            </button>
+            <button class="toolbar-btn" onclick="openMessagesPreview()" title="سجل الرسائل في قاعدة البيانات">
+              <span class="tb-icon">📋</span>
+              <span>سجل الرسائل الملتقطة</span>
+            </button>
+            <button class="toolbar-btn" onclick="openSettingsModal()" title="أرقام الفريق المستبعدة">
+              <span class="tb-icon">🛡️</span>
+              <span>أرقام الفريق المستبعدة</span>
+            </button>
+            <button class="toolbar-btn" onclick="refreshLiveData()" title="تحديث الإحصائيات الفورية">
+              <span class="tb-icon">🔄</span>
+              <span>تحديث الإحصائيات</span>
+            </button>
+          </div>
+
+          <!-- Content Output -->
+          <div class="report-content-area" id="report-content-area">
+            
+            <!-- Empty State -->
+            <div class="report-empty" id="report-empty">
+              <div style="font-size: 3rem; margin-bottom: 12px;">📊</div>
+              <h3>جاهز لاستخراج تقرير الجودة والرقابة</h3>
+              <p>اضغط على زر "⚡ استخراج تقرير الجودة الآن" لتحليل أداء السيلز وتدقيق المحادثات والصوتيات.</p>
+              <button class="action-btn refresh-btn" style="margin-top: 16px;" onclick="generateReport()">⚡ استخراج تقرير الجودة الآن</button>
+            </div>
+
+            <!-- Loading State -->
+            <div class="report-loading hidden" id="report-loading">
+              <div class="ai-loader">
+                <div class="ai-brain">🧠</div>
+                <div class="ai-waves">
+                  <div class="wave"></div>
+                  <div class="wave"></div>
+                  <div class="wave"></div>
+                </div>
+              </div>
+              <h3>جيمناي يحلل المحادثات الآن...</h3>
+              <p id="loading-progress">يقرأ كل الشاتات المسجلة في الفترة المحددة</p>
+            </div>
+
+            <!-- Output State -->
+            <div class="report-output hidden" id="report-output">
+              <div class="report-actions" style="margin-bottom: 16px;">
+                <button class="action-btn copy-btn" onclick="copyReport()">📋 نسخ التقرير</button>
+                <button class="action-btn print-btn" onclick="printReport()">🖨️ طباعة / PDF</button>
+                <button class="action-btn export-btn" onclick="exportCsvLeads()">📊 تصدير Excel للعملاء</button>
+                <button class="action-btn refresh-btn" onclick="generateReport()">🔄 إعادة التحليل</button>
+              </div>
+              <div class="report-text" id="report-text"></div>
+            </div>
+
+            <!-- Monthly History Panel -->
+            <section class="monthly-scores-panel" id="monthly-scores-panel" style="margin-top: 24px;">
+              <div class="monthly-scores-heading">
+                <div>
+                  <h2>تطور تقييم السيلز هذا الشهر</h2>
+                  <p>يُحفظ تقييم كل يوم عند استخراج تقرير اليوم.</p>
+                </div>
+                <span class="monthly-score-month" id="monthly-score-month"></span>
+              </div>
+              <div class="monthly-scores-table-wrap">
+                <table class="monthly-scores-table">
+                  <thead>
+                    <tr>
+                      <th>التاريخ</th>
+                      <th>السيلز</th>
+                      <th>التقييم</th>
+                      <th>ليدات</th>
+                      <th>فولو أب</th>
+                      <th>محادثات</th>
+                      <th>أهم فرصة تطوير</th>
+                    </tr>
+                  </thead>
+                  <tbody id="monthly-scores-body">
+                    <tr><td colspan="7" class="scores-empty">لا توجد تقييمات محفوظة لهذا الشهر بعد.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <!-- Error State -->
+            <div class="report-error hidden" id="report-error">
+              <div class="error-icon" id="error-icon">ℹ️</div>
+              <h3 id="error-title">تنبيه أثناء استخراج التقرير</h3>
+              <p id="error-message"></p>
+              <div class="error-actions" id="error-actions-container">
+                <button class="action-btn" onclick="generateReport()">🔄 إعادة المحاولة</button>
+              </div>
+            </div>
+
+          </div>
+
         </div>
 
       </div>
-    </main>
+    </section>
 
   </div>
 
@@ -345,8 +794,8 @@
       </div>
       <div class="modal-body">
         <label class="input-label" for="account-name-input">اسم ممثل المبيعات أو الحساب</label>
-        <input type="text" id="account-name-input" placeholder="مثال: أحمد - السيلز" class="modal-input" autocomplete="off" />
-        <p class="input-hint">سيظهر هذا الاسم في التقارير لتمييز أداء كل موظف</p>
+        <input type="text" id="account-name-input" placeholder="مثال: خط تركيا - أحمد" class="modal-input" autocomplete="off" />
+        <p class="input-hint">سيظهر هذا الاسم في التقارير وقائمة الخطوط</p>
 
         <!-- مواعيد عمل الموظف المخصصة -->
         <div class="schedule-config-box">
@@ -424,7 +873,6 @@
         <p class="modal-intro">أدخل أرقام هواتف موظفي المبيعات أو الإدارة لاستبعاد محادثاتهم الداخلية بالكامل من الإحصائيات وعدم اعتبارهم عملاء أو ليدات.</p>
         <label class="input-label" for="excluded-phones-input">أرقام الهواتف (رقم في كل سطر أو مفصولة بفواصل):</label>
         <textarea id="excluded-phones-input" rows="6" placeholder="مثال:&#10;01012345678&#10;01123456789&#10;+201234567890" class="modal-textarea" dir="ltr"></textarea>
-        <p class="input-hint">تقبل الأرقام بالصيغة المحلية (01xxxxxxxxx) أو الدولية (+20xxxxxxxxx).</p>
       </div>
       <div class="modal-footer">
         <button class="modal-btn cancel" onclick="closeSettingsModal()">إلغاء</button>
@@ -449,10 +897,10 @@
     </div>
   </div>
 
-  <!-- Toast Container -->
+  <!-- Toast Notification Container -->
   <div class="toast-container" id="toast-container"></div>
 
-  <!-- Dashboard Client Script -->
+  <!-- Client Controller Script -->
   <script src="dashboard.js"></script>
 </body>
 </html>

@@ -659,6 +659,198 @@ async function getTodayMessagesPreview(accountId, period) {
   return messages.slice(-100);
 }
 
+async function getChatsList({ accountId = null, search = '', limit = 100, offset = 0 } = {}) {
+  await initialize();
+  const pool = db.getPool();
+  const excludedPhones = getExcludedPhonesNormalized();
+
+  let filterSql = `WHERE timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days' AND chat_id IS NOT NULL`;
+  const params = [];
+
+  if (accountId) {
+    params.push(accountId);
+    filterSql += ` AND account_id = $${params.length}`;
+  }
+
+  let searchSql = '';
+  if (search && String(search).trim()) {
+    params.push(`%${String(search).trim()}%`);
+    const pIdx = params.length;
+    searchSql = ` AND (customer_name ILIKE $${pIdx} OR customer_phone ILIKE $${pIdx} OR text ILIKE $${pIdx} OR chat_id ILIKE $${pIdx})`;
+  }
+
+  const query = `
+    WITH combined AS (
+      SELECT id, chat_id, customer_name, customer_phone, account_id, account_name, text, sender, timestamp, 'text' AS msg_type
+      FROM messages
+      ${filterSql} ${searchSql}
+      UNION ALL
+      SELECT id, chat_id, customer_name, customer_phone, account_id, account_name, COALESCE(transcript, '🎤 تسجيل صوتي') AS text, sender, timestamp, 'audio' AS msg_type
+      FROM audio_messages
+      ${filterSql} ${searchSql}
+    ),
+    ranked AS (
+      SELECT 
+        chat_id, customer_name, customer_phone, account_id, account_name, text, sender, timestamp, msg_type,
+        ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY timestamp DESC) AS rn,
+        COUNT(*) OVER (PARTITION BY chat_id) AS total_count
+      FROM combined
+    )
+    SELECT 
+      chat_id, customer_name, customer_phone, account_id, account_name, 
+      text AS last_message, sender AS last_sender, timestamp AS last_time, 
+      msg_type AS last_type, total_count AS message_count
+    FROM ranked
+    WHERE rn = 1
+    ORDER BY last_time DESC
+    LIMIT ${Number(limit) || 100} OFFSET ${Number(offset) || 0};
+  `;
+
+  const res = await pool.query(query, params);
+  return res.rows.filter(r => {
+    if (!excludedPhones.size) return true;
+    const pDigits = String(r.customer_phone || '').replace(/\D/g, '');
+    if (pDigits && excludedPhones.has(pDigits)) return false;
+    const cDigits = String(r.chat_id || '').split('@')[0].replace(/\D/g, '');
+    if (cDigits && excludedPhones.has(cDigits)) return false;
+    return true;
+  }).map(row => ({
+    chatId: row.chat_id,
+    customerName: row.customer_name || 'عميل غير مسجل',
+    customerPhone: row.customer_phone ? db.formatPhoneNumber(row.customer_phone) : '',
+    accountId: row.account_id,
+    accountName: row.account_name || 'خط غير محدد',
+    lastMessage: row.last_message || '',
+    lastSender: row.last_sender || 'customer',
+    lastType: row.last_type || 'text',
+    lastTime: row.last_time,
+    displayTime: formatCairoTime(row.last_time),
+    messageCount: Number(row.message_count) || 0
+  }));
+}
+
+async function getChatMessages({ chatId, accountId = null, limit = 200 } = {}) {
+  await initialize();
+  if (!chatId) return [];
+  const pool = db.getPool();
+
+  const params = [chatId];
+  let accFilter = '';
+  if (accountId) {
+    params.push(accountId);
+    accFilter = ` AND account_id = $${params.length}`;
+  }
+
+  const query = `
+    SELECT 
+      id, account_id, account_name, customer_name, customer_phone, chat_id, 
+      sender, text, NULL AS transcript, NULL AS tone_analysis, NULL AS duration_sec, 
+      'text' AS type, timestamp, display_time
+    FROM messages
+    WHERE chat_id = $1 ${accFilter} AND timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days'
+    UNION ALL
+    SELECT 
+      id, account_id, account_name, customer_name, customer_phone, chat_id, 
+      sender, NULL AS text, transcript, tone_analysis, duration_sec, 
+      'audio' AS type, timestamp, display_time
+    FROM audio_messages
+    WHERE chat_id = $1 ${accFilter} AND timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days'
+    ORDER BY timestamp ASC
+    LIMIT ${Number(limit) || 200};
+  `;
+
+  const res = await pool.query(query, params);
+  return res.rows.map(row => ({
+    id: String(row.id),
+    type: row.type,
+    sender: row.sender,
+    text: row.text || '',
+    transcript: row.transcript || '',
+    toneAnalysis: row.tone_analysis || '',
+    durationSec: Number(row.duration_sec) || 0,
+    timestamp: row.timestamp,
+    displayTime: formatCairoTime(row.timestamp),
+    accountName: row.account_name || '',
+    customerName: row.customer_name || '',
+    customerPhone: row.customer_phone ? db.formatPhoneNumber(row.customer_phone) : ''
+  }));
+}
+
+async function getLatestMessageIds() {
+  await initialize();
+  const pool = db.getPool();
+  const resMsg = await pool.query('SELECT COALESCE(MAX(id), 0) AS max_id FROM messages');
+  const resAudio = await pool.query('SELECT COALESCE(MAX(id), 0) AS max_id FROM audio_messages');
+  return {
+    lastMsgId: Number(resMsg.rows[0].max_id) || 0,
+    lastAudioId: Number(resAudio.rows[0].max_id) || 0
+  };
+}
+
+async function getNewMessagesSince(lastMsgId = 0, lastAudioId = 0) {
+  await initialize();
+  const pool = db.getPool();
+
+  const [msgsRes, audioRes] = await Promise.all([
+    pool.query(`
+      SELECT id, account_id, account_name, customer_name, customer_phone, chat_id, sender, text, timestamp, display_time, 'text' AS type
+      FROM messages
+      WHERE id > $1
+      ORDER BY id ASC
+      LIMIT 50
+    `, [lastMsgId]),
+    pool.query(`
+      SELECT id, account_id, account_name, customer_name, customer_phone, chat_id, sender, transcript, tone_analysis, duration_sec, timestamp, display_time, 'audio' AS type
+      FROM audio_messages
+      WHERE id > $1
+      ORDER BY id ASC
+      LIMIT 50
+    `, [lastAudioId])
+  ]);
+
+  const newItems = [
+    ...msgsRes.rows.map(r => ({
+      id: Number(r.id),
+      chatId: r.chat_id,
+      accountId: r.account_id,
+      accountName: r.account_name,
+      customerName: r.customer_name,
+      customerPhone: r.customer_phone ? db.formatPhoneNumber(r.customer_phone) : '',
+      sender: r.sender,
+      text: r.text || '',
+      type: 'text',
+      timestamp: r.timestamp,
+      displayTime: formatCairoTime(r.timestamp)
+    })),
+    ...audioRes.rows.map(r => ({
+      id: Number(r.id),
+      chatId: r.chat_id,
+      accountId: r.account_id,
+      accountName: r.account_name,
+      customerName: r.customer_name,
+      customerPhone: r.customer_phone ? db.formatPhoneNumber(r.customer_phone) : '',
+      sender: r.sender,
+      transcript: r.transcript || '',
+      toneAnalysis: r.tone_analysis || '',
+      durationSec: Number(r.duration_sec) || 0,
+      type: 'audio',
+      timestamp: r.timestamp,
+      displayTime: formatCairoTime(r.timestamp)
+    }))
+  ];
+
+  newItems.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+  const newMaxMsgId = msgsRes.rows.length ? Math.max(...msgsRes.rows.map(r => Number(r.id))) : lastMsgId;
+  const newMaxAudioId = audioRes.rows.length ? Math.max(...audioRes.rows.map(r => Number(r.id))) : lastAudioId;
+
+  return {
+    items: newItems,
+    maxMsgId: newMaxMsgId,
+    maxAudioId: newMaxAudioId
+  };
+}
+
 async function testGeminiConnection() {
   await initialize();
   return await gemini.testConnection();
@@ -680,5 +872,9 @@ module.exports = {
   testGeminiConnection,
   buildResponseMetrics,
   shiftDateByDays,
+  getChatsList,
+  getChatMessages,
+  getLatestMessageIds,
+  getNewMessagesSince,
   DATA_RETENTION_DAYS
 };
