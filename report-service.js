@@ -690,17 +690,24 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
       FROM audio_messages
       ${filterSql} ${searchSql}
     ),
+    chat_sales AS (
+      SELECT chat_id, MAX(CASE WHEN sender = 'sales' THEN timestamp ELSE NULL END) AS last_sales_time
+      FROM combined
+      GROUP BY chat_id
+    ),
     ranked AS (
       SELECT 
-        chat_id, customer_name, customer_phone, account_id, account_name, text, sender, timestamp, msg_type,
-        ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY timestamp DESC) AS rn,
-        COUNT(*) OVER (PARTITION BY chat_id) AS total_count
-      FROM combined
+        c.chat_id, c.customer_name, c.customer_phone, c.account_id, c.account_name, c.text, c.sender, c.timestamp, c.msg_type,
+        ROW_NUMBER() OVER (PARTITION BY c.chat_id ORDER BY c.timestamp DESC) AS rn,
+        COUNT(*) OVER (PARTITION BY c.chat_id) AS total_count,
+        COUNT(CASE WHEN c.sender = 'customer' AND (cs.last_sales_time IS NULL OR c.timestamp > cs.last_sales_time) THEN 1 END) OVER (PARTITION BY c.chat_id) AS unread_count
+      FROM combined c
+      JOIN chat_sales cs ON c.chat_id = cs.chat_id
     )
     SELECT 
       chat_id, customer_name, customer_phone, account_id, account_name, 
       text AS last_message, sender AS last_sender, timestamp AS last_time, 
-      msg_type AS last_type, total_count AS message_count
+      msg_type AS last_type, total_count AS message_count, unread_count
     FROM ranked
     WHERE rn = 1
     ORDER BY last_time DESC
@@ -726,7 +733,8 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
     lastType: row.last_type || 'text',
     lastTime: row.last_time,
     displayTime: formatCairoTime(row.last_time),
-    messageCount: Number(row.message_count) || 0
+    messageCount: Number(row.message_count) || 0,
+    unreadCount: Number(row.unread_count) || 0
   }));
 }
 
