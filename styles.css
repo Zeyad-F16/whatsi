@@ -627,28 +627,6 @@ webview.active {
   border-color: var(--accent-teal);
 }
 
-.account-schedule-btn {
-  background: rgba(0, 168, 132, 0.12);
-  border: 1px solid rgba(0, 168, 132, 0.4);
-  color: var(--accent-teal);
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  font-family: var(--font-main);
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-.account-schedule-btn:hover {
-  background: var(--accent-teal);
-  color: #fff;
-}
-
 .report-period-actions {
   display: inline-flex;
   align-items: center;
