@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Whatsi Z-ray | لوحة تحكم ومراقبة فريق المبيعات</title>
+  <link rel="icon" type="image/png" href="whatsi.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* تحسينات خاصة بلوحة الويب المستقلة */
+    body {
+      background: var(--bg-darkest, #0b141a);
+      color: var(--text-primary, #e9edef);
+      font-family: var(--font-main, 'Cairo', sans-serif);
+      margin: 0;
+      padding: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .web-dashboard-container {
+      max-width: 1350px;
+      margin: 0 auto;
+      padding: 20px 24px 60px 24px;
+    }
+
+    .web-navbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      background: var(--bg-dark, #111b21);
+      border: 1px solid var(--border-color, #222d34);
+      border-radius: var(--radius-lg, 14px);
+      margin-bottom: 20px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .web-brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .web-brand-logo {
+      width: 46px;
+      height: 46px;
+      border-radius: 12px;
+      object-fit: cover;
+      box-shadow: 0 2px 10px rgba(0, 168, 132, 0.3);
+    }
+
+    .web-brand-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--text-primary, #fff);
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .web-brand-badge {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 20px;
+      background: rgba(0, 168, 132, 0.15);
+      color: var(--accent-teal, #00a884);
+      border: 1px solid rgba(0, 168, 132, 0.35);
+    }
+
+    .web-brand-subtitle {
+      font-size: 0.8rem;
+      color: var(--text-secondary, #8696a0);
+      margin: 2px 0 0 0;
+    }
+
+    .web-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+
+    .web-kpi-card {
+      background: var(--bg-dark, #111b21);
+      border: 1px solid var(--border-color, #222d34);
+      border-radius: var(--radius-md, 12px);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+
+    .web-kpi-card:hover {
+      border-color: rgba(0, 168, 132, 0.5);
+      transform: translateY(-2px);
+    }
+
+    .web-kpi-value {
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: var(--text-primary, #fff);
+      line-height: 1;
+    }
+
+    .web-kpi-label {
+      font-size: 0.82rem;
+      color: var(--text-secondary, #8696a0);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .web-kpi-card.sales .web-kpi-value { color: #53bdeb; }
+    .web-kpi-card.customer .web-kpi-value { color: #00d26a; }
+    .web-kpi-card.leads .web-kpi-value { color: #ffb020; }
+    .web-kpi-card.followup .web-kpi-value { color: #b388ff; }
+
+    /* تعديل استجابة العرض على الشاشات الكبيرة والصغيرة */
+    .report-view {
+      position: static;
+      display: flex;
+      flex-direction: column;
+      height: auto;
+      min-height: 600px;
+    }
+
+    .report-content-area {
+      overflow-y: visible;
+      height: auto;
+      flex: none;
+    }
+
+    @media (max-width: 768px) {
+      .web-dashboard-container {
+        padding: 12px;
+      }
+      .report-header-actions {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .report-toolbar {
+        flex-wrap: wrap;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="web-dashboard-container">
+    
+    <!-- Navbar / Branding Header -->
+    <header class="web-navbar">
+      <div class="web-brand">
+        <img src="whatsi.png" alt="Whatsi Logo" class="web-brand-logo" />
+        <div>
+          <h1 class="web-brand-title">
+            Whatsi Z-ray
+            <span class="web-brand-badge">Live Multi-User Dashboard</span>
+          </h1>
+          <p class="web-brand-subtitle">نظام التدقيق والرقابة الذكية على محادثات فريق المبيعات بتوقيت القاهرة</p>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span id="system-status-indicator" style="font-size: 0.8rem; color: #00d26a; display: flex; align-items: center; gap: 6px;">
+          <span style="width: 8px; height: 8px; background: #00d26a; border-radius: 50%; display: inline-block;"></span>
+          النظام متصل وقاعدة البيانات نشطة
+        </span>
+      </div>
+    </header>
+
+    <!-- Top KPI Overview Cards -->
+    <section class="web-kpi-grid">
+      <div class="web-kpi-card">
+        <div class="web-kpi-value" id="stat-chats">0</div>
+        <div class="web-kpi-label">💬 إجمالي المحادثات</div>
+      </div>
+      <div class="web-kpi-card">
+        <div class="web-kpi-value" id="stat-messages">0</div>
+        <div class="web-kpi-label">📩 إجمالي الرسائل</div>
+      </div>
+      <div class="web-kpi-card sales">
+        <div class="web-kpi-value" id="stat-sales-messages">0</div>
+        <div class="web-kpi-label">👔 رسائل المبيعات</div>
+      </div>
+      <div class="web-kpi-card customer">
+        <div class="web-kpi-value" id="stat-customer-messages">0</div>
+        <div class="web-kpi-label">👤 رسائل العملاء</div>
+      </div>
+      <div class="web-kpi-card leads">
+        <div class="web-kpi-value" id="stat-leads">0</div>
+        <div class="web-kpi-label">🎯 ليدات جديدة اليوم</div>
+      </div>
+      <div class="web-kpi-card followup">
+        <div class="web-kpi-value" id="stat-followups">0</div>
+        <div class="web-kpi-label">🔄 متابعات (فولو أب)</div>
+      </div>
+    </section>
+
+    <!-- Main Report Container -->
+    <main class="report-view">
+      
+      <!-- Report Header Filters -->
+      <div class="report-header">
+        <div class="report-header-info">
+          <h2 class="report-title">تقرير أداء وجودة فريق المبيعات</h2>
+          <p class="report-subtitle" id="report-subtitle-text"></p>
+        </div>
+        <div class="report-header-actions">
+          <div class="report-account-filter">
+            <label for="report-account">الحساب:</label>
+            <select id="report-account">
+              <option value="">كل الحسابات</option>
+            </select>
+          </div>
+          <div class="report-period-actions" role="group" aria-label="فترة التقرير">
+            <button class="period-btn active" id="report-today-btn" onclick="setPeriodAndGenerate('today')">تقرير اليوم</button>
+            <button class="period-btn" id="report-yesterday-btn" onclick="setPeriodAndGenerate('yesterday')">تقرير أمس</button>
+            <button class="period-btn" id="report-last48-btn" onclick="setPeriodAndGenerate('last48h')">تقرير آخر 48 ساعة</button>
+            <button class="period-btn" id="report-last7days-btn" onclick="setPeriodAndGenerate('last7days')">تقرير آخر 7 أيام</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Action Toolbar -->
+      <div class="report-toolbar">
+        <button class="toolbar-btn" onclick="openWorkSchedulesModal()" title="تحديد مواعيد وساعات عمل الموظفين المحددة">
+          <span class="tb-icon">⏰</span>
+          <span>مواعيد وساعات العمل</span>
+        </button>
+        <button class="toolbar-btn" onclick="testGeminiConnection()" title="فحص مفتاح وصلاحية Gemini API">
+          <span class="tb-icon">⚡</span>
+          <span>فحص اتصال Gemini</span>
+        </button>
+        <button class="toolbar-btn" onclick="openMessagesPreview()" title="عرض الرسائل المسجلة في قاعدة البيانات">
+          <span class="tb-icon">📋</span>
+          <span>سجل الرسائل الملتقطة</span>
+        </button>
+        <button class="toolbar-btn" onclick="openSettingsModal()" title="إعدادات أرقام الفريق المستبعدة">
+          <span class="tb-icon">🛡️</span>
+          <span>أرقام الفريق المستبعدة</span>
+        </button>
+        <button class="toolbar-btn" onclick="refreshLiveData()" title="تحديث الإحصائيات الفورية">
+          <span class="tb-icon">🔄</span>
+          <span>تحديث الإحصائيات</span>
+        </button>
+      </div>
+
+      <!-- Report Content Area -->
+      <div class="report-content-area" id="report-content-area">
+        
+        <!-- Empty State -->
+        <div class="report-empty" id="report-empty">
+          <div style="font-size: 3rem; margin-bottom: 12px;">📊</div>
+          <h3>جاهز لاستخراج تقرير الجودة والرقابة</h3>
+          <p>اضغط على زر "⚡ استخراج تقرير الجودة الآن" أو اختر الفترة المطلوبة ليقوم الذكاء الاصطناعي بتحليل الأداء ورصد سرعة الرد ومتابعة العملاء.</p>
+          <button class="action-btn refresh-btn" style="margin-top: 16px;" onclick="generateReport()">⚡ استخراج تقرير الجودة الآن</button>
+        </div>
+
+        <!-- Loading State -->
+        <div class="report-loading hidden" id="report-loading">
+          <div class="ai-loader">
+            <div class="ai-brain">🧠</div>
+            <div class="ai-waves">
+              <div class="wave"></div>
+              <div class="wave"></div>
+              <div class="wave"></div>
+            </div>
+          </div>
+          <h3>جيمناي يحلل المحادثات الآن...</h3>
+          <p id="loading-progress">يقرأ كل الشاتات المسجلة في الفترة المحددة</p>
+        </div>
+
+        <!-- Report Output -->
+        <div class="report-output hidden" id="report-output">
+          <div class="report-actions" style="margin-bottom: 16px;">
+            <button class="action-btn copy-btn" onclick="copyReport()">📋 نسخ التقرير</button>
+            <button class="action-btn print-btn" onclick="printReport()">🖨️ طباعة / PDF</button>
+            <button class="action-btn export-btn" onclick="exportCsvLeads()">📊 تصدير Excel للعملاء</button>
+            <button class="action-btn refresh-btn" onclick="generateReport()">🔄 إعادة التحليل</button>
+          </div>
+          <div class="report-text" id="report-text"></div>
+        </div>
+
+        <!-- Monthly Scores Panel -->
+        <section class="monthly-scores-panel" id="monthly-scores-panel" style="margin-top: 24px;">
+          <div class="monthly-scores-heading">
+            <div>
+              <h2>تطور تقييم السيلز هذا الشهر</h2>
+              <p>يُحفظ تقييم كل يوم عند استخراج تقرير اليوم.</p>
+            </div>
+            <span class="monthly-score-month" id="monthly-score-month"></span>
+          </div>
+          <div class="monthly-scores-table-wrap">
+            <table class="monthly-scores-table">
+              <thead>
+                <tr>
+                  <th>التاريخ</th>
+                  <th>السيلز</th>
+                  <th>التقييم</th>
+                  <th>ليدات</th>
+                  <th>فولو أب</th>
+                  <th>محادثات</th>
+                  <th>أهم فرصة تطوير</th>
+                </tr>
+              </thead>
+              <tbody id="monthly-scores-body">
+                <tr><td colspan="7" class="scores-empty">لا توجد تقييمات محفوظة لهذا الشهر بعد.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Error State -->
+        <div class="report-error hidden" id="report-error">
+          <div class="error-icon" id="error-icon">ℹ️</div>
+          <h3 id="error-title">تنبيه أثناء استخراج التقرير</h3>
+          <p id="error-message"></p>
+          <div class="error-actions" id="error-actions-container">
+            <button class="action-btn" onclick="generateReport()">🔄 إعادة المحاولة</button>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+  </div>
+
+  <!-- ===== MODALS ===== -->
+
+  <!-- Add/Edit Account & Schedule Modal -->
+  <div id="name-modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeModal()"></div>
+    <div class="modal-content modal-medium">
+      <div class="modal-header">
+        <h3 id="modal-title">تعديل اسم ومواعيد عمل الحساب</h3>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="input-label" for="account-name-input">اسم ممثل المبيعات أو الحساب</label>
+        <input type="text" id="account-name-input" placeholder="مثال: أحمد - السيلز" class="modal-input" autocomplete="off" />
+        <p class="input-hint">سيظهر هذا الاسم في التقارير لتمييز أداء كل موظف</p>
+
+        <!-- مواعيد عمل الموظف المخصصة -->
+        <div class="schedule-config-box">
+          <div class="schedule-toggle-row">
+            <label class="toggle-checkbox-label">
+              <input type="checkbox" id="account-schedule-enabled" checked onchange="toggleScheduleInputs()" />
+              <span class="toggle-text"><b>تحديد مواعيد عمل مخصصة لهذا الموظف</b></span>
+            </label>
+          </div>
+          
+          <div id="schedule-inputs-area" class="schedule-inputs-area">
+            <div class="schedule-times-row">
+              <div class="time-field">
+                <label class="input-sublabel" for="account-work-start">وقت بدء العمل (يومياً):</label>
+                <input type="time" id="account-work-start" value="10:00" class="time-input" />
+              </div>
+              <div class="time-field">
+                <label class="input-sublabel" for="account-work-end">وقت نهاية العمل (يومياً):</label>
+                <input type="time" id="account-work-end" value="19:00" class="time-input" />
+              </div>
+            </div>
+
+            <div class="days-selector-group">
+              <label class="input-sublabel">أيام عمل الموظف الأسبوعية:</label>
+              <div class="work-days-grid" id="work-days-grid">
+                <label class="day-chip"><input type="checkbox" name="work-day-check" value="6" checked /><span>السبت</span></label>
+                <label class="day-chip"><input type="checkbox" name="work-day-check" value="0" checked /><span>الأحد</span></label>
+                <label class="day-chip"><input type="checkbox" name="work-day-check" value="1" checked /><span>الإثنين</span></label>
+                <label class="day-chip"><input type="checkbox" name="work-day-check" value="2" checked /><span>الثلاثاء</span></label>
+                <label class="day-chip"><input type="checkbox" name="work-day-check" value="3" checked /><span>الأربعاء</span></label>
+                <label class="day-chip"><input type="checkbox" name="work-day-check" value="4" checked /><span>الخميس</span></label>
+                <label class="day-chip"><input type="checkbox" name="work-day-check" value="5" /><span>الجمعة (إجازة)</span></label>
+              </div>
+            </div>
+            <p class="input-hint">يتم قياس وقت الرد واحتساب الانتظار فقط ضمن هذه الساعات والأيام المحددة لهذا الموظف بتوقيت القاهرة.</p>
+          </div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button id="cancel-name-btn" class="modal-btn cancel" onclick="closeModal()">إلغاء</button>
+        <button id="save-name-btn" class="modal-btn save" onclick="saveAccountFromModal()">حفظ التعديلات</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Work Schedules Overview Modal -->
+  <div id="schedules-modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeWorkSchedulesModal()"></div>
+    <div class="modal-content modal-medium">
+      <div class="modal-header">
+        <h3 id="schedules-modal-title">⏰ مواعيد وساعات عمل موظفي المبيعات</h3>
+        <button class="modal-close" onclick="closeWorkSchedulesModal()">✕</button>
+      </div>
+      <div class="modal-body modal-scrollable">
+        <p class="modal-intro">حدد لكل موظف مبيعات ساعات عمله المحددة (مثلاً من 10 ص إلى 7 م) وأيام عمله لتفادي احتساب ساعات الليل والإجازات كتأخير في الرد.</p>
+        <div id="schedules-accounts-list" class="schedules-accounts-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn cancel" onclick="closeWorkSchedulesModal()">إغلاق</button>
+        <button class="modal-btn save" onclick="openAddAccountModal()">➕ إضافة موظف جديد</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal (Excluded internal numbers) -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeSettingsModal()"></div>
+    <div class="modal-content modal-medium">
+      <div class="modal-header">
+        <h3 id="settings-modal-title">🛡️ أرقام موظفي الفريق المستبعدة</h3>
+        <button class="modal-close" onclick="closeSettingsModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-intro">أدخل أرقام هواتف موظفي المبيعات أو الإدارة لاستبعاد محادثاتهم الداخلية بالكامل من الإحصائيات وعدم اعتبارهم عملاء أو ليدات.</p>
+        <label class="input-label" for="excluded-phones-input">أرقام الهواتف (رقم في كل سطر أو مفصولة بفواصل):</label>
+        <textarea id="excluded-phones-input" rows="6" placeholder="مثال:&#10;01012345678&#10;01123456789&#10;+201234567890" class="modal-textarea" dir="ltr"></textarea>
+        <p class="input-hint">تقبل الأرقام بالصيغة المحلية (01xxxxxxxxx) أو الدولية (+20xxxxxxxxx).</p>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn cancel" onclick="closeSettingsModal()">إلغاء</button>
+        <button class="modal-btn save" onclick="saveInternalSettings()">حفظ الإعدادات</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Messages Preview Modal -->
+  <div id="messages-modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeMessagesModal()"></div>
+    <div class="modal-content modal-large">
+      <div class="modal-header">
+        <h3 id="messages-modal-title">📋 سجل الرسائل الملتقطة في قاعدة البيانات</h3>
+        <button class="modal-close" onclick="closeMessagesModal()">✕</button>
+      </div>
+      <div class="modal-body modal-scrollable" id="messages-list-container"></div>
+      <div class="modal-footer">
+        <span id="messages-count-label" class="modal-footer-info">0 رسالة</span>
+        <button class="modal-btn cancel" onclick="closeMessagesModal()">إغلاق</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Dashboard Client Script -->
+  <script src="dashboard.js"></script>
+</body>
+</html>
