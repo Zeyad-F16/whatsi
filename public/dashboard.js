@@ -133,6 +133,19 @@ function renderAccountsRail() {
   updateRailActiveItem();
 }
 
+function updateUnreadChipBadge(count) {
+  const chipBadge = document.getElementById('wa-unread-chip-count');
+  if (!chipBadge) return;
+  const num = Number(count) || 0;
+  if (num > 0) {
+    chipBadge.textContent = num > 99 ? '99+' : num;
+    chipBadge.style.display = 'inline-flex';
+  } else {
+    chipBadge.textContent = '0';
+    chipBadge.style.display = 'none';
+  }
+}
+
 window.selectSalesAccount = function(accountId) {
   selectedSalesAccountId = accountId || '';
   updateRailActiveItem();
@@ -143,9 +156,20 @@ window.selectSalesAccount = function(accountId) {
     if (!selectedSalesAccountId) {
       titleEl.textContent = 'جميع خطوط المبيعات';
     } else {
-      const acc = accounts.find(a => a.id === selectedSalesAccountId);
+      const acc = accounts.find(a => a.id === selectedSalesAccountId || a.name === selectedSalesAccountId);
       titleEl.textContent = acc ? acc.name : selectedSalesAccountId;
     }
+  }
+
+  // تحديث فوري لرقم الغير مقروء في الـ Chip ليطابق الحساب المختار فوراً دون أي تأخير
+  if (!selectedSalesAccountId) {
+    const allBadge = document.getElementById('wa-rail-badge-all');
+    const count = allBadge ? parseInt(allBadge.textContent, 10) || 0 : 0;
+    updateUnreadChipBadge(count);
+  } else {
+    const badgeEl = document.getElementById(`wa-rail-badge-${selectedSalesAccountId}`);
+    const count = badgeEl ? parseInt(badgeEl.textContent, 10) || 0 : 0;
+    updateUnreadChipBadge(count);
   }
 
   // وضع مؤشر التحميل أثناء الجلب
@@ -185,16 +209,21 @@ window.setChatFilterChip = function(mode) {
 
 function applyChatFilter() {
   if (!chats || !chats.length) {
+    updateUnreadChipBadge(0);
     renderChatsList([]);
     return;
   }
 
+  const unreadChats = chats.filter(chat => {
+    const isSales = chat.lastSender === 'sales';
+    const effectiveUnread = !isSales ? (Number(chat.unreadCount) || 0) : 0;
+    return effectiveUnread > 0;
+  });
+
+  // تحديث رقم الغير مقروء في الـ Chip ليطابق الحساب والفلتر المعروض حالياً بدقة
+  updateUnreadChipBadge(unreadChats.length);
+
   if (currentChatFilterChip === 'unread') {
-    const unreadChats = chats.filter(chat => {
-      const isSales = chat.lastSender === 'sales';
-      const effectiveUnread = !isSales ? (Number(chat.unreadCount) || 0) : 0;
-      return effectiveUnread > 0;
-    });
     renderChatsList(unreadChats);
   } else {
     renderChatsList(chats);
@@ -212,8 +241,12 @@ function updateRailUnreadCountersFromList(chatList) {
     const effectiveUnread = !isSales ? (Number(chat.unreadCount) || 0) : 0;
     if (effectiveUnread > 0) {
       totalAllUnread += 1;
-      if (chat.accountId && countPerAccount[chat.accountId] !== undefined) {
-        countPerAccount[chat.accountId] += 1;
+      const matched = accounts.find(a => 
+        (chat.accountId && (a.id === chat.accountId || a.name === chat.accountId)) ||
+        (chat.accountName && (a.name === chat.accountName || a.id === chat.accountName))
+      );
+      if (matched) {
+        countPerAccount[matched.id] = (countPerAccount[matched.id] || 0) + 1;
       }
     }
   });
@@ -226,21 +259,11 @@ function updateRailUnreadCountersFromList(chatList) {
       allBadge.style.display = 'inline-flex';
     } else {
       allBadge.style.display = 'none';
+      allBadge.textContent = '0';
     }
   }
 
-  // 2. Chip badge in sidebar
-  const chipBadge = document.getElementById('wa-unread-chip-count');
-  if (chipBadge) {
-    if (totalAllUnread > 0) {
-      chipBadge.textContent = totalAllUnread > 99 ? '99+' : totalAllUnread;
-      chipBadge.style.display = 'inline-flex';
-    } else {
-      chipBadge.style.display = 'none';
-    }
-  }
-
-  // 3. Badges per sales account in rail
+  // 2. Badges per sales account in rail
   accounts.forEach(acc => {
     const badge = document.getElementById(`wa-rail-badge-${acc.id}`);
     if (badge) {
@@ -250,9 +273,19 @@ function updateRailUnreadCountersFromList(chatList) {
         badge.style.display = 'inline-flex';
       } else {
         badge.style.display = 'none';
+        badge.textContent = '0';
       }
     }
   });
+
+  // 3. Chip badge in sidebar: دقيق للحساب المحدد حالياً
+  if (!selectedSalesAccountId) {
+    updateUnreadChipBadge(totalAllUnread);
+  } else {
+    const matched = accounts.find(a => a.id === selectedSalesAccountId || a.name === selectedSalesAccountId);
+    const activeAccCount = matched ? (countPerAccount[matched.id] || 0) : (countPerAccount[selectedSalesAccountId] || 0);
+    updateUnreadChipBadge(activeAccCount);
+  }
 }
 
 async function refreshRailUnreadCounters() {
@@ -292,11 +325,8 @@ async function loadChatsList() {
       chats = data.chats;
       applyChatFilter();
 
-      if (!accountId) {
-        updateRailUnreadCountersFromList(chats);
-      } else {
-        refreshRailUnreadCounters();
-      }
+      // تحديث عدادات العامود الجانبي
+      refreshRailUnreadCounters();
     } else {
       throw new Error(data.error || 'فشل في استرجاع المحادثات من السيرفر');
     }
@@ -698,10 +728,8 @@ function handleSalesUnreadUpdate(data) {
     chat.unreadCount = count;
   }
 
+  applyChatFilter();
   refreshRailUnreadCounters();
-  if (currentChatFilterChip === 'unread') {
-    applyChatFilter();
-  }
 }
 
 function handleIncomingLiveEvents(events) {
@@ -780,10 +808,8 @@ function updateChatSidebarOnEvent(event) {
       if (chat) chat.unreadCount = newCount;
     }
 
+    applyChatFilter();
     refreshRailUnreadCounters();
-    if (currentChatFilterChip === 'unread') {
-      applyChatFilter();
-    }
   } else {
     // محادثة جديدة لم تكن بالقائمة، نعيد جلب القائمة
     loadChatsList();

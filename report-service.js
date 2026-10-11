@@ -693,16 +693,23 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
       ${filterSql} ${searchSql}
     ),
     chat_sales AS (
-      SELECT chat_id, MAX(CASE WHEN sender = 'sales' THEN timestamp ELSE NULL END) AS last_sales_time
-      FROM combined
-      GROUP BY chat_id
+      SELECT 
+        c.chat_id, 
+        MAX(CASE WHEN c.sender = 'sales' THEN c.timestamp ELSE NULL END) AS last_sales_time,
+        MAX(CASE WHEN scs.unread_count = 0 THEN scs.seen_at ELSE NULL END) AS last_seen_at
+      FROM combined c
+      LEFT JOIN sales_chat_seen scs ON (scs.chat_id = c.chat_id AND (scs.account_id = c.account_id OR scs.account_id = c.account_name))
+      GROUP BY c.chat_id
     ),
     ranked AS (
       SELECT 
         c.chat_id, c.customer_name, c.customer_phone, c.account_id, c.account_name, c.text, c.sender, c.timestamp, c.msg_type,
         ROW_NUMBER() OVER (PARTITION BY c.chat_id ORDER BY c.timestamp DESC) AS rn,
         COUNT(*) OVER (PARTITION BY c.chat_id) AS total_count,
-        COUNT(CASE WHEN c.sender = 'customer' AND (cs.last_sales_time IS NULL OR c.timestamp > cs.last_sales_time) THEN 1 END) OVER (PARTITION BY c.chat_id) AS unread_count
+        COUNT(CASE WHEN c.sender = 'customer' 
+          AND (cs.last_sales_time IS NULL OR c.timestamp > cs.last_sales_time)
+          AND (cs.last_seen_at IS NULL OR c.timestamp > cs.last_seen_at)
+        THEN 1 END) OVER (PARTITION BY c.chat_id) AS unread_count
       FROM combined c
       JOIN chat_sales cs ON c.chat_id = cs.chat_id
     )
