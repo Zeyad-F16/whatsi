@@ -733,7 +733,7 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
     FROM ranked r
     LEFT JOIN sales_chat_seen s ON r.account_id = s.account_id AND r.chat_id = s.chat_id
     WHERE r.rn = 1
-    ORDER BY r.last_time DESC
+    ORDER BY r.timestamp DESC
     LIMIT ${Number(limit) || 100} OFFSET ${Number(offset) || 0};
   `;
 
@@ -773,7 +773,7 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
         r.raw_unread_count AS unread_count
       FROM ranked r
       WHERE r.rn = 1
-      ORDER BY r.last_time DESC
+      ORDER BY r.timestamp DESC
       LIMIT ${Number(limit) || 100} OFFSET ${Number(offset) || 0};
     `;
     res = await pool.query(fallbackQuery, params);
