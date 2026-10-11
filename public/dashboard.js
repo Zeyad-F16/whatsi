@@ -148,6 +148,11 @@ window.selectSalesAccount = function(accountId) {
     }
   }
 
+  // وضع مؤشر التحميل أثناء الجلب
+  if (waChatListContainer) {
+    waChatListContainer.innerHTML = '<div style="padding: 30px; text-align: center; color: #8696a0;">جاري تحميل المحادثات...</div>';
+  }
+
   loadChatsList();
   if (activeChatId) {
     reloadCurrentChatMessages();
@@ -292,19 +297,28 @@ async function loadChatsList() {
       } else {
         refreshRailUnreadCounters();
       }
+    } else {
+      throw new Error(data.error || 'فشل في استرجاع المحادثات من السيرفر');
     }
   } catch (err) {
     console.error('Failed to load chats:', err);
     if (waChatListContainer) {
-      waChatListContainer.innerHTML = `<div style="padding:20px; color:#ff4d4f; text-align:center;">خطأ في جلب المحادثات: ${err.message}</div>`;
+      waChatListContainer.innerHTML = `<div style="padding:24px; color:#ff4d4f; text-align:center; font-size:0.9rem;">
+        <div>⚠️ خطأ في جلب المحادثات:</div>
+        <div style="margin-top:6px; font-size:0.8rem; color:#8696a0;">${escapeHtml(err.message)}</div>
+        <button class="action-btn" onclick="loadChatsList()" style="margin-top:12px; padding:4px 12px; font-size:0.8rem;">إعادة المحاولة 🔄</button>
+      </div>`;
     }
   }
 }
 
 function renderChatsList(items) {
   if (!waChatListContainer) return;
-  if (!items.length) {
-    waChatListContainer.innerHTML = '<div style="padding: 30px; text-align: center; color: #8696a0;">لا توجد محادثات مسجلة تطابق البحث.</div>';
+  if (!items || !items.length) {
+    const msg = currentChatFilterChip === 'unread'
+      ? 'لا توجد محادثات غير مقروءة معلقة لهذا الحساب.'
+      : 'لا توجد محادثات مسجلة تطابق البحث.';
+    waChatListContainer.innerHTML = `<div style="padding: 30px; text-align: center; color: #8696a0;">${msg}</div>`;
     return;
   }
 

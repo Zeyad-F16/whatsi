@@ -659,10 +659,27 @@ async function getTodayMessagesPreview(accountId, period) {
   return messages.slice(-100);
 }
 
+async function ensureSalesChatSeenTable(pool) {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS sales_chat_seen (
+        account_id TEXT NOT NULL,
+        chat_id TEXT NOT NULL,
+        seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        unread_count INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (account_id, chat_id)
+      );
+    `);
+  } catch (e) {
+    console.warn('Could not auto-create sales_chat_seen table:', e.message);
+  }
+}
+
 async function getChatsList({ accountId = null, search = '', limit = 100, offset = 0 } = {}) {
   await initialize();
   const pool = db.getPool();
   const excludedPhones = getExcludedPhonesNormalized();
+  await ensureSalesChatSeenTable(pool);
 
   let filterSql = `WHERE timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days' AND chat_id IS NOT NULL`;
   const params = [];
@@ -720,7 +737,47 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
     LIMIT ${Number(limit) || 100} OFFSET ${Number(offset) || 0};
   `;
 
-  const res = await pool.query(query, params);
+  let res;
+  try {
+    res = await pool.query(query, params);
+  } catch (err) {
+    console.error('getChatsList primary query failed, falling back:', err.message);
+    const fallbackQuery = `
+      WITH combined AS (
+        SELECT id, chat_id, customer_name, customer_phone, account_id, account_name, text, sender, timestamp, 'text' AS msg_type
+        FROM messages
+        ${filterSql} ${searchSql}
+        UNION ALL
+        SELECT id, chat_id, customer_name, customer_phone, account_id, account_name, COALESCE(transcript, '🎤 تسجيل صوتي') AS text, sender, timestamp, 'audio' AS msg_type
+        FROM audio_messages
+        ${filterSql} ${searchSql}
+      ),
+      chat_sales AS (
+        SELECT chat_id, MAX(CASE WHEN sender = 'sales' THEN timestamp ELSE NULL END) AS last_sales_time
+        FROM combined
+        GROUP BY chat_id
+      ),
+      ranked AS (
+        SELECT 
+          c.chat_id, c.customer_name, c.customer_phone, c.account_id, c.account_name, c.text, c.sender, c.timestamp, c.msg_type,
+          ROW_NUMBER() OVER (PARTITION BY c.chat_id ORDER BY c.timestamp DESC) AS rn,
+          COUNT(*) OVER (PARTITION BY c.chat_id) AS total_count,
+          COUNT(CASE WHEN c.sender = 'customer' AND (cs.last_sales_time IS NULL OR c.timestamp > cs.last_sales_time) THEN 1 END) OVER (PARTITION BY c.chat_id) AS raw_unread_count
+        FROM combined c
+        JOIN chat_sales cs ON c.chat_id = cs.chat_id
+      )
+      SELECT 
+        r.chat_id, r.customer_name, r.customer_phone, r.account_id, r.account_name, 
+        r.text AS last_message, r.sender AS last_sender, r.timestamp AS last_time, 
+        r.msg_type AS last_type, r.total_count AS message_count,
+        r.raw_unread_count AS unread_count
+      FROM ranked r
+      WHERE r.rn = 1
+      ORDER BY r.last_time DESC
+      LIMIT ${Number(limit) || 100} OFFSET ${Number(offset) || 0};
+    `;
+    res = await pool.query(fallbackQuery, params);
+  }
   return res.rows.filter(r => {
     if (!excludedPhones.size) return true;
     const pDigits = String(r.customer_phone || '').replace(/\D/g, '');
@@ -873,18 +930,23 @@ async function testGeminiConnection() {
 }
 
 async function getRecentSalesSeenUpdates(since) {
-  await initialize();
-  const pool = db.getPool();
-  const res = await pool.query(
-    'SELECT account_id, chat_id, unread_count, seen_at FROM sales_chat_seen WHERE seen_at > $1 ORDER BY seen_at ASC',
-    [since || new Date(0)]
-  );
-  return res.rows.map(r => ({
-    accountId: r.account_id,
-    chatId: r.chat_id,
-    unreadCount: Number(r.unread_count) || 0,
-    seenAt: r.seen_at
-  }));
+  try {
+    await initialize();
+    const pool = db.getPool();
+    await ensureSalesChatSeenTable(pool);
+    const res = await pool.query(
+      'SELECT account_id, chat_id, unread_count, seen_at FROM sales_chat_seen WHERE seen_at > $1 ORDER BY seen_at ASC',
+      [since || new Date(0)]
+    );
+    return res.rows.map(r => ({
+      accountId: r.account_id,
+      chatId: r.chat_id,
+      unreadCount: Number(r.unread_count) || 0,
+      seenAt: r.seen_at
+    }));
+  } catch (e) {
+    return [];
+  }
 }
 
 module.exports = {
