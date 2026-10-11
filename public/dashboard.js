@@ -52,6 +52,7 @@ const waChatMessagesScroll = document.getElementById('wa-chat-messages-scroll');
 // ===== Initialization =====
 async function init() {
   await loadAccounts();
+  refreshRailUnreadCounters();
   await loadChatsList();
   await refreshLiveData();
   await loadMonthlyScores();
@@ -163,12 +164,16 @@ window.selectSalesAccount = function(accountId) {
 
   // تحديث فوري لرقم الغير مقروء في الـ Chip ليطابق الحساب المختار فوراً دون أي تأخير
   if (!selectedSalesAccountId) {
-    const allBadge = document.getElementById('wa-rail-badge-all');
-    const count = allBadge ? parseInt(allBadge.textContent, 10) || 0 : 0;
+    const count = cachedUnreadCounts ? (cachedUnreadCounts.totalAll || 0) : 0;
     updateUnreadChipBadge(count);
   } else {
+    const matched = accounts.find(a => a.id === selectedSalesAccountId || a.name === selectedSalesAccountId);
+    const byId = cachedUnreadCounts?.byAccountId || {};
+    const byName = cachedUnreadCounts?.byAccountName || {};
     const badgeEl = document.getElementById(`wa-rail-badge-${selectedSalesAccountId}`);
-    const count = badgeEl ? parseInt(badgeEl.textContent, 10) || 0 : 0;
+    const count = matched
+      ? ((byId[matched.id] !== undefined ? byId[matched.id] : byName[matched.name]) || (byName[matched.id] || 0) || (byId[matched.name] || 0) || (badgeEl ? parseInt(badgeEl.textContent, 10) || 0 : 0))
+      : (badgeEl ? parseInt(badgeEl.textContent, 10) || 0 : 0);
     updateUnreadChipBadge(count);
   }
 
@@ -209,7 +214,11 @@ window.setChatFilterChip = function(mode) {
 
 function applyChatFilter() {
   if (!chats || !chats.length) {
-    updateUnreadChipBadge(0);
+    if (!selectedSalesAccountId && cachedUnreadCounts) {
+      updateUnreadChipBadge(cachedUnreadCounts.totalAll || 0);
+    } else {
+      updateUnreadChipBadge(0);
+    }
     renderChatsList([]);
     return;
   }
@@ -220,8 +229,14 @@ function applyChatFilter() {
     return effectiveUnread > 0;
   });
 
-  // تحديث رقم الغير مقروء في الـ Chip ليطابق الحساب والفلتر المعروض حالياً بدقة
-  updateUnreadChipBadge(unreadChats.length);
+  // إذا كنا داخل حساب محدد، نحدث الـ chip بعدد الشاتات غير المقروءة الفعلية
+  if (selectedSalesAccountId) {
+    updateUnreadChipBadge(unreadChats.length);
+  } else if (cachedUnreadCounts) {
+    updateUnreadChipBadge(cachedUnreadCounts.totalAll || 0);
+  } else {
+    updateUnreadChipBadge(unreadChats.length);
+  }
 
   if (currentChatFilterChip === 'unread') {
     renderChatsList(unreadChats);
@@ -230,32 +245,20 @@ function applyChatFilter() {
   }
 }
 
-function updateRailUnreadCountersFromList(chatList) {
-  if (!Array.isArray(chatList)) return;
-  let totalAllUnread = 0;
-  const countPerAccount = {};
-  accounts.forEach(acc => { countPerAccount[acc.id] = 0; });
+let cachedUnreadCounts = null;
 
-  chatList.forEach(chat => {
-    const isSales = chat.lastSender === 'sales';
-    const effectiveUnread = !isSales ? (Number(chat.unreadCount) || 0) : 0;
-    if (effectiveUnread > 0) {
-      totalAllUnread += 1;
-      const matched = accounts.find(a => 
-        (chat.accountId && (a.id === chat.accountId || a.name === chat.accountId)) ||
-        (chat.accountName && (a.name === chat.accountName || a.id === chat.accountName))
-      );
-      if (matched) {
-        countPerAccount[matched.id] = (countPerAccount[matched.id] || 0) + 1;
-      }
-    }
-  });
+function applyRailUnreadCounters(countsData) {
+  if (!countsData) return;
+  cachedUnreadCounts = countsData;
+  const totalAll = Number(countsData.totalAll) || 0;
+  const byId = countsData.byAccountId || {};
+  const byName = countsData.byAccountName || {};
 
   // 1. All badge in rail
   const allBadge = document.getElementById('wa-rail-badge-all');
   if (allBadge) {
-    if (totalAllUnread > 0) {
-      allBadge.textContent = totalAllUnread > 99 ? '99+' : totalAllUnread;
+    if (totalAll > 0) {
+      allBadge.textContent = totalAll > 99 ? '99+' : totalAll;
       allBadge.style.display = 'inline-flex';
     } else {
       allBadge.style.display = 'none';
@@ -267,7 +270,9 @@ function updateRailUnreadCountersFromList(chatList) {
   accounts.forEach(acc => {
     const badge = document.getElementById(`wa-rail-badge-${acc.id}`);
     if (badge) {
-      const c = countPerAccount[acc.id] || 0;
+      const c = (byId[acc.id] !== undefined ? byId[acc.id] : byName[acc.name]) ||
+                (byName[acc.id] !== undefined ? byName[acc.id] : 0) ||
+                (byId[acc.name] !== undefined ? byId[acc.name] : 0) || 0;
       if (c > 0) {
         badge.textContent = c > 99 ? '99+' : c;
         badge.style.display = 'inline-flex';
@@ -280,20 +285,22 @@ function updateRailUnreadCountersFromList(chatList) {
 
   // 3. Chip badge in sidebar: دقيق للحساب المحدد حالياً
   if (!selectedSalesAccountId) {
-    updateUnreadChipBadge(totalAllUnread);
+    updateUnreadChipBadge(totalAll);
   } else {
     const matched = accounts.find(a => a.id === selectedSalesAccountId || a.name === selectedSalesAccountId);
-    const activeAccCount = matched ? (countPerAccount[matched.id] || 0) : (countPerAccount[selectedSalesAccountId] || 0);
+    const activeAccCount = matched
+      ? ((byId[matched.id] !== undefined ? byId[matched.id] : byName[matched.name]) || (byName[matched.id] || 0) || (byId[matched.name] || 0) || 0)
+      : (byId[selectedSalesAccountId] || byName[selectedSalesAccountId] || 0);
     updateUnreadChipBadge(activeAccCount);
   }
 }
 
 async function refreshRailUnreadCounters() {
   try {
-    const res = await fetch('/api/chats');
+    const res = await fetch('/api/unread-counts');
     const data = await res.json();
-    if (data.success && Array.isArray(data.chats)) {
-      updateRailUnreadCountersFromList(data.chats);
+    if (data.success) {
+      applyRailUnreadCounters(data);
     }
   } catch (e) {
     console.warn('Failed to refresh rail unread counters:', e);
@@ -319,13 +326,13 @@ async function loadChatsList() {
   const search = waSearchInput ? waSearchInput.value.trim() : '';
 
   try {
-    const res = await fetch(`/api/chats?accountId=${encodeURIComponent(accountId)}&search=${encodeURIComponent(search)}`);
+    const res = await fetch(`/api/chats?accountId=${encodeURIComponent(accountId)}&search=${encodeURIComponent(search)}&limit=150`);
     const data = await res.json();
     if (data.success && Array.isArray(data.chats)) {
       chats = data.chats;
       applyChatFilter();
 
-      // تحديث عدادات العامود الجانبي
+      // تحديث عدادات العامود الجانبي من الكاونتر الشامل
       refreshRailUnreadCounters();
     } else {
       throw new Error(data.error || 'فشل في استرجاع المحادثات من السيرفر');

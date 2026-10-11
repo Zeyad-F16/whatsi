@@ -164,6 +164,16 @@ app.get('/api/chats', async (req, res) => {
   }
 });
 
+// 11.1. جلب عدادات المحادثات غير المقروءة الشاملة لكل الحسابات بدقة تامة
+app.get('/api/unread-counts', async (req, res) => {
+  try {
+    const data = await reportService.getUnreadCounts();
+    res.json({ success: true, ...data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 12. جلب رسائل وصوتيات محادثة معينة مرتبة زمنياً
 app.get('/api/chat-messages', async (req, res) => {
   try {

@@ -707,15 +707,12 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
         c.chat_id, c.customer_name, c.customer_phone, c.account_id, c.account_name, c.text, c.sender, c.timestamp, c.msg_type,
         ROW_NUMBER() OVER (PARTITION BY c.chat_id ORDER BY c.timestamp DESC) AS rn,
         COUNT(*) OVER (PARTITION BY c.chat_id) AS total_count,
-        COALESCE(
-          cs.reported_unread,
-          CASE 
-            WHEN c.sender = 'sales' THEN 0
-            WHEN cs.last_seen_at IS NOT NULL AND c.timestamp <= cs.last_seen_at THEN 0
-            WHEN cs.last_sales_time IS NOT NULL AND c.timestamp <= cs.last_sales_time THEN 0
-            ELSE 0
-          END
-        ) AS unread_count
+        CASE 
+          WHEN c.sender = 'sales' THEN 0
+          WHEN cs.last_seen_at IS NOT NULL AND cs.last_seen_at >= c.timestamp THEN 0
+          WHEN cs.reported_unread IS NOT NULL AND cs.reported_unread > 0 THEN cs.reported_unread
+          ELSE 1
+        END AS unread_count
       FROM combined c
       JOIN chat_sales cs ON c.chat_id = cs.chat_id
     )
@@ -726,7 +723,7 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
     FROM ranked
     WHERE rn = 1
     ORDER BY last_time DESC
-    LIMIT ${Number(limit) || 100} OFFSET ${Number(offset) || 0};
+    LIMIT ${Number(limit) || 150} OFFSET ${Number(offset) || 0};
   `;
 
   const res = await pool.query(query, params);
@@ -902,6 +899,87 @@ async function getRecentSalesSeenUpdates(since) {
   }
 }
 
+async function getUnreadCounts() {
+  try {
+    await initialize();
+    const pool = db.getPool();
+    const settings = loadSettings();
+    const excludedPhones = new Set((settings.excludedPhones || []).map(p => String(p).replace(/\D/g, '')).filter(Boolean));
+
+    const query = `
+      WITH combined AS (
+        SELECT id, chat_id, customer_phone, account_id, account_name, sender, timestamp
+        FROM messages
+        WHERE chat_id IS NOT NULL
+        UNION ALL
+        SELECT id, chat_id, customer_phone, account_id, account_name, sender, timestamp
+        FROM audio_messages
+        WHERE chat_id IS NOT NULL
+      ),
+      chat_sales AS (
+        SELECT 
+          c.chat_id, 
+          MAX(CASE WHEN c.sender = 'sales' THEN c.timestamp ELSE NULL END) AS last_sales_time,
+          MAX(scs.seen_at) AS last_seen_at,
+          MAX(scs.unread_count) AS reported_unread
+        FROM combined c
+        LEFT JOIN sales_chat_seen scs ON (scs.chat_id = c.chat_id AND (scs.account_id = c.account_id OR scs.account_id = c.account_name))
+        GROUP BY c.chat_id
+      ),
+      ranked AS (
+        SELECT 
+          c.chat_id, c.customer_phone, c.account_id, c.account_name, c.sender, c.timestamp,
+          ROW_NUMBER() OVER (PARTITION BY c.chat_id ORDER BY c.timestamp DESC) AS rn,
+          CASE 
+            WHEN c.sender = 'sales' THEN 0
+            WHEN cs.last_seen_at IS NOT NULL AND cs.last_seen_at >= c.timestamp THEN 0
+            WHEN cs.reported_unread IS NOT NULL AND cs.reported_unread > 0 THEN cs.reported_unread
+            ELSE 1
+          END AS unread_count
+        FROM combined c
+        JOIN chat_sales cs ON c.chat_id = cs.chat_id
+      )
+      SELECT 
+        chat_id, customer_phone, account_id, account_name, unread_count
+      FROM ranked
+      WHERE rn = 1 AND unread_count > 0;
+    `;
+
+    const res = await pool.query(query);
+    const rows = res.rows.filter(r => {
+      if (!excludedPhones.size) return true;
+      const pDigits = String(r.customer_phone || '').replace(/\D/g, '');
+      if (pDigits && excludedPhones.has(pDigits)) return false;
+      const cDigits = String(r.chat_id || '').split('@')[0].replace(/\D/g, '');
+      if (cDigits && excludedPhones.has(cDigits)) return false;
+      return true;
+    });
+
+    const byAccountId = {};
+    const byAccountName = {};
+    let totalAll = 0;
+
+    for (const r of rows) {
+      totalAll++;
+      if (r.account_id) {
+        byAccountId[r.account_id] = (byAccountId[r.account_id] || 0) + 1;
+      }
+      if (r.account_name) {
+        byAccountName[r.account_name] = (byAccountName[r.account_name] || 0) + 1;
+      }
+    }
+
+    return {
+      totalAll,
+      byAccountId,
+      byAccountName
+    };
+  } catch (err) {
+    console.warn('[report-service] Error calculating unread counts:', err.message);
+    return { totalAll: 0, byAccountId: {}, byAccountName: {} };
+  }
+}
+
 async function getCustomerBrief(chatId) {
   await initialize();
   if (!chatId) return null;
@@ -1003,6 +1081,7 @@ module.exports = {
   getLatestMessageIds,
   getNewMessagesSince,
   getRecentSalesSeenUpdates,
+  getUnreadCounts,
   getCustomerBrief,
   generateOrUpdateCustomerBrief,
   runDailyBriefsUpdate,
