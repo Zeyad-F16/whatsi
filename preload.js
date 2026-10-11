@@ -453,8 +453,27 @@ function hookChatCollection(ChatCollection) {
     } catch (_) {}
   }
 
+  function syncAllChatsUnread() {
+    try {
+      const chatsArray = ChatCollection.getModelsArray?.() || ChatCollection.models || [];
+      if (Array.isArray(chatsArray) && chatsArray.length > 0) {
+        for (const chatModel of chatsArray) {
+          reportChatUnread(chatModel);
+        }
+      }
+    } catch (_) {}
+  }
+
+  // مزامنة دورية وشاملة لكل المحادثات لضمان دقة أرقام غير المقروء كواتساب الأصلي تماماً
+  setTimeout(syncAllChatsUnread, 1500);
+  setTimeout(syncAllChatsUnread, 5000);
+  setTimeout(syncAllChatsUnread, 15000);
+  setInterval(syncAllChatsUnread, 20000);
+
   try {
     ChatCollection.on?.('change:unreadCount', reportChatUnread);
+    ChatCollection.on?.('reset', syncAllChatsUnread);
+    ChatCollection.on?.('sync', syncAllChatsUnread);
   } catch (_) {}
 
   // عند قيام السيلز بالنقر داخل واتساب ويب لفتح أي محادثة (عمل سين)
