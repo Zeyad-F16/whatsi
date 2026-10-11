@@ -356,6 +356,164 @@ function renderChatsList(items) {
 }
 
 // ===== 4. Active Conversation Details =====
+let currentCustomerProfile = null;
+
+window.toggleBriefCardCollapse = function(event) {
+  if (event) event.stopPropagation();
+  const card = document.getElementById('wa-brief-card');
+  const icon = document.getElementById('wa-brief-toggle-icon');
+  if (!card) return;
+  const isCollapsed = card.classList.toggle('collapsed');
+  if (icon) icon.textContent = isCollapsed ? '▼' : '▲';
+};
+
+window.loadCustomerBrief = async function(chatId) {
+  const card = document.getElementById('wa-brief-card');
+  const contentEl = document.getElementById('wa-brief-content');
+  const updatedEl = document.getElementById('wa-brief-updated-at');
+  const badgeEl = document.getElementById('wa-brief-status-badge');
+  if (!card || !contentEl) return;
+
+  card.style.display = 'block';
+  contentEl.innerHTML = '<div style="color: #8696a0; font-size: 0.8rem; padding: 6px 0;">جاري جلب ملف وبريف الطالب...</div>';
+  if (updatedEl) updatedEl.textContent = '';
+
+  try {
+    const res = await fetch(`/api/customer-brief?chatId=${encodeURIComponent(chatId)}`);
+    const data = await res.json();
+    if (data.success && data.profile && data.profile.brief) {
+      currentCustomerProfile = data.profile;
+      renderCustomerBriefContent(data.profile);
+    } else {
+      currentCustomerProfile = data.profile || null;
+      renderEmptyBriefPrompt();
+    }
+  } catch (err) {
+    console.error('Error loading customer brief:', err);
+    renderEmptyBriefPrompt();
+  }
+};
+
+function renderCustomerBriefContent(profile) {
+  const contentEl = document.getElementById('wa-brief-content');
+  const updatedEl = document.getElementById('wa-brief-updated-at');
+  const badgeEl = document.getElementById('wa-brief-status-badge');
+  if (!contentEl) return;
+
+  if (updatedEl && profile.updated_at) {
+    const dt = new Date(profile.updated_at);
+    const timeStr = dt.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const dateStr = dt.toLocaleDateString('ar-EG', { day: 'numeric', month: 'numeric' });
+    updatedEl.textContent = `آخر تحديث: ${dateStr} ${timeStr}`;
+  }
+
+  if (badgeEl) {
+    badgeEl.textContent = profile.status === 'active' ? 'ملف نشط' : (profile.status || 'نشط');
+  }
+
+  // معالجة وتنسيق نص البريف بأسلوب احترافي
+  const rawBrief = profile.brief || '';
+  const lines = rawBrief.split('\n').filter(l => l.trim().length > 0);
+
+  const formattedHtml = lines.map(line => {
+    let clean = line.trim();
+    if (clean.startsWith('•') || clean.startsWith('-') || clean.startsWith('*')) {
+      clean = clean.replace(/^[•\-\*]\s*/, '');
+      const parts = clean.split(':');
+      if (parts.length > 1) {
+        const title = parts[0].trim();
+        const value = parts.slice(1).join(':').trim();
+        return `
+          <div class="wa-brief-item-row">
+            <span style="font-weight: 700; color: #53bdeb; min-width: 170px; display: inline-block;">${escapeHtml(title)}:</span>
+            <span style="color: #e9edef; flex: 1;">${escapeHtml(value)}</span>
+          </div>
+        `;
+      }
+    }
+    return `<div style="margin-bottom: 4px; color: #d1d7db;">${escapeHtml(clean)}</div>`;
+  }).join('');
+
+  contentEl.innerHTML = formattedHtml || `<div style="white-space: pre-wrap;">${escapeHtml(rawBrief)}</div>`;
+}
+
+function renderEmptyBriefPrompt() {
+  const contentEl = document.getElementById('wa-brief-content');
+  const updatedEl = document.getElementById('wa-brief-updated-at');
+  if (updatedEl) updatedEl.textContent = 'ملف جديد';
+  if (!contentEl) return;
+
+  contentEl.innerHTML = `
+    <div class="wa-brief-empty-state">
+      <div>
+        <span>💡 لا يوجد بريف ملخص محفوظ لهذا الطالب حتى الآن.</span>
+        <span style="display: block; font-size: 0.76rem; color: #8696a0; margin-top: 2px;">
+          اضغط على الزر باليسار لقراءة كل محادثاته وتوليد ملف CRM فوري وشامل بواسطة Gemini وحفظه للأبد.
+        </span>
+      </div>
+      <button class="wa-brief-btn" onclick="triggerGenerateCustomerBrief(event)">
+        <span>✨ توليد البريف الآن</span>
+      </button>
+    </div>
+  `;
+}
+
+window.triggerGenerateCustomerBrief = async function(event) {
+  if (event) event.stopPropagation();
+  if (!activeChatId) return;
+
+  const btn = document.getElementById('wa-brief-refresh-btn');
+  const btnLabel = document.getElementById('wa-brief-btn-label');
+  const btnIcon = document.getElementById('wa-brief-btn-icon');
+  const contentEl = document.getElementById('wa-brief-content');
+
+  const origLabel = btnLabel ? btnLabel.textContent : '';
+  if (btn) btn.disabled = true;
+  if (btnLabel) btnLabel.textContent = 'جارٍ التوليد...';
+  if (btnIcon) btnIcon.textContent = '⏳';
+
+  if (contentEl) {
+    contentEl.innerHTML = '<div style="color: #00a884; font-size: 0.84rem; padding: 10px 0; text-align: center;">🤖 جارٍ تحليل المحادثات والتسجيلات بواسطة Gemini وتوليد البريف الدائم...</div>';
+  }
+
+  // إذا كانت البطاقة مطوية، افتحها
+  const card = document.getElementById('wa-brief-card');
+  if (card && card.classList.contains('collapsed')) {
+    window.toggleBriefCardCollapse();
+  }
+
+  try {
+    const res = await fetch('/api/customer-brief', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chatId: activeChatId,
+        accountId: selectedSalesAccountId || null,
+        force: true
+      })
+    });
+    const data = await res.json();
+    if (data.success && data.profile) {
+      currentCustomerProfile = data.profile;
+      renderCustomerBriefContent(data.profile);
+    } else {
+      alert(`⚠️ تعذر توليد البريف: ${data.error || 'حدث خطأ غير معروف'}`);
+      if (currentCustomerProfile && currentCustomerProfile.brief) {
+        renderCustomerBriefContent(currentCustomerProfile);
+      } else {
+        renderEmptyBriefPrompt();
+      }
+    }
+  } catch (err) {
+    alert(`⚠️ خطأ في الاتصال: ${err.message}`);
+    renderEmptyBriefPrompt();
+  } finally {
+    if (btn) btn.disabled = false;
+    if (btnLabel) btnLabel.textContent = origLabel || 'تحديث البريف';
+    if (btnIcon) btnIcon.textContent = '✨';
+  }
+};
+
 window.openChat = async function(chatId) {
   activeChatId = chatId;
 
@@ -374,6 +532,7 @@ window.openChat = async function(chatId) {
   waEmptyChatState.style.display = 'none';
   waActiveChatContent.style.display = 'flex';
 
+  loadCustomerBrief(chatId);
   await reloadCurrentChatMessages();
 };
 

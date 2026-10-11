@@ -176,6 +176,41 @@ app.get('/api/chat-messages', async (req, res) => {
   }
 });
 
+// 12.1. جلب بريف الطالب وملف العميل الدائم (Customer Profile Dossier)
+app.get('/api/customer-brief', async (req, res) => {
+  try {
+    const { chatId } = req.query;
+    if (!chatId) return res.status(400).json({ success: false, error: 'chatId مطلوب' });
+    const profile = await reportService.getCustomerBrief(chatId);
+    res.json({ success: true, profile });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 12.2. توليد أو تحديث بريف الطالب عبر الذكاء الاصطناعي عند الطلب
+app.post('/api/customer-brief', async (req, res) => {
+  try {
+    const { chatId, accountId, force } = req.body;
+    if (!chatId) return res.status(400).json({ success: false, error: 'chatId مطلوب' });
+    const result = await reportService.generateOrUpdateCustomerBrief({ chatId, accountId, force: Boolean(force) });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// 12.3. تشغيل التحديث اليومي الشامل لملخصات العملاء
+app.post('/api/daily-briefs-sync', async (req, res) => {
+  try {
+    const { date } = req.body;
+    const result = await reportService.runDailyBriefsUpdate(date);
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // 13. قناة البث اللحظي للرسائل الجديدة عبر Server-Sent Events (SSE)
 const sseClients = new Set();
 
@@ -247,6 +282,28 @@ async function startRealtimeLiveTracker() {
   }, 1500);
 }
 
+// تشغيل التحديث التلقائي اليومي لملخصات الطلاب في نهاية كل يوم (بتوقيت القاهرة)
+let lastBriefRunDate = '';
+function scheduleDailyBriefsRunner() {
+  setInterval(async () => {
+    try {
+      const nowCairo = new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
+      const hours = nowCairo.getHours();
+      const minutes = nowCairo.getMinutes();
+      const todayStr = `${nowCairo.getFullYear()}-${String(nowCairo.getMonth() + 1).padStart(2, '0')}-${String(nowCairo.getDate()).padStart(2, '0')}`;
+
+      // يتم التشغيل تلقائياً في نهاية اليوم بين 23:50 و 23:59
+      if (hours === 23 && minutes >= 50 && lastBriefRunDate !== todayStr) {
+        lastBriefRunDate = todayStr;
+        console.log(`[Scheduler] تشغيل التحديث التلقائي اليومي لبريفات الطلاب: ${todayStr}`);
+        await reportService.runDailyBriefsUpdate(todayStr);
+      }
+    } catch (e) {
+      console.error('[Scheduler] خطأ في مجدول بريفات الطلاب:', e.message);
+    }
+  }, 10 * 60 * 1000); // كل 10 دقائق
+}
+
 // Fallback للصفحة الرئيسية
 app.use((req, res) => {
   const indexHtml = path.join(publicDir, 'index.html');
@@ -260,6 +317,7 @@ app.use((req, res) => {
 // بدء تشغيل الخادم
 reportService.initialize().then(() => {
   startRealtimeLiveTracker();
+  scheduleDailyBriefsRunner();
   app.listen(PORT, HOST, () => {
     console.log(`====================================================`);
     console.log(`🚀 [Whatsi Dashboard] Web Server running at:`);

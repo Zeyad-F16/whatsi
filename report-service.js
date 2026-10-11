@@ -18,8 +18,8 @@ const {
   isConcludingCustomerMessage
 } = require('./timezone');
 
-// متغيرات الاحتفاظ بالبيانات
-const DATA_RETENTION_DAYS = Math.max(1, Number(process.env.DATA_RETENTION_DAYS || 7));
+// متغيرات الاحتفاظ بالبيانات (36500 يوم = دائم للأبد بدون أي حذف تلقائي)
+const DATA_RETENTION_DAYS = Math.max(1, Number(process.env.DATA_RETENTION_DAYS || 36500));
 const DATA_RETENTION_MS = DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 const audioTimestampCutoff = Math.floor((Date.now() - DATA_RETENTION_MS) / 1000);
 
@@ -664,7 +664,9 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
   const pool = db.getPool();
   const excludedPhones = getExcludedPhonesNormalized();
 
-  let filterSql = `WHERE timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days' AND chat_id IS NOT NULL`;
+  let filterSql = DATA_RETENTION_DAYS >= 36500
+    ? 'WHERE chat_id IS NOT NULL'
+    : `WHERE timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days' AND chat_id IS NOT NULL`;
   const params = [];
 
   if (accountId) {
@@ -751,20 +753,22 @@ async function getChatMessages({ chatId, accountId = null, limit = 200 } = {}) {
     accFilter = ` AND (account_id = $${pIdx} OR account_name = $${pIdx})`;
   }
 
+  const retentionSql = DATA_RETENTION_DAYS >= 36500 ? '' : `AND timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days'`;
+
   const query = `
     SELECT 
       id, account_id, account_name, customer_name, customer_phone, chat_id, 
       sender, text, NULL AS transcript, NULL AS tone_analysis, NULL AS duration_sec, 
       'text' AS type, timestamp, display_time
     FROM messages
-    WHERE chat_id = $1 ${accFilter} AND timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days'
+    WHERE chat_id = $1 ${accFilter} ${retentionSql}
     UNION ALL
     SELECT 
       id, account_id, account_name, customer_name, customer_phone, chat_id, 
       sender, NULL AS text, transcript, tone_analysis, duration_sec, 
       'audio' AS type, timestamp, display_time
     FROM audio_messages
-    WHERE chat_id = $1 ${accFilter} AND timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days'
+    WHERE chat_id = $1 ${accFilter} ${retentionSql}
     ORDER BY timestamp ASC
     LIMIT ${Number(limit) || 200};
   `;
@@ -885,6 +889,86 @@ async function getRecentSalesSeenUpdates(since) {
   }
 }
 
+async function getCustomerBrief(chatId) {
+  await initialize();
+  if (!chatId) return null;
+  return await db.getCustomerProfile(chatId);
+}
+
+async function generateOrUpdateCustomerBrief({ chatId, accountId = null, force = false } = {}) {
+  await initialize();
+  if (!chatId) throw new Error('معرف المحادثة (chatId) مطلوب');
+
+  const existingProfile = await db.getCustomerProfile(chatId);
+
+  // جلب آخر الرسائل من قاعدة البيانات
+  const messages = await getChatMessages({ chatId, accountId, limit: 100 });
+  if (!messages || messages.length === 0) {
+    if (existingProfile) {
+      return { success: true, profile: existingProfile, message: 'لا توجد رسائل جديدة، تم الاحتفاظ بالبريف السابق' };
+    }
+    return { success: false, error: 'لا توجد رسائل مسجلة لهذا العميل لتوليد بريف' };
+  }
+
+  // استخراج بيانات الطالب واسم السيلز من الرسائل إن لم تكن متوفرة
+  const customerName = existingProfile?.customer_name || messages.find(m => m.customerName)?.customerName || '';
+  const customerPhone = existingProfile?.customer_phone || messages.find(m => m.customerPhone)?.customerPhone || '';
+  const accountName = messages.find(m => m.sender === 'sales')?.accountName || existingProfile?.last_account_name || '';
+
+  const aiResult = await gemini.generateCustomerBrief({
+    customerName,
+    customerPhone,
+    messages,
+    existingBrief: existingProfile?.brief || ''
+  });
+
+  if (!aiResult.success) {
+    throw new Error(aiResult.error || 'فشل توليد البريف عبر الذكاء الاصطناعي');
+  }
+
+  const savedProfile = await db.saveCustomerProfile({
+    chatId,
+    customerPhone,
+    customerName,
+    firstAccountName: existingProfile?.first_account_name || accountName,
+    lastAccountName: accountName,
+    brief: aiResult.brief,
+    status: 'active'
+  });
+
+  return {
+    success: true,
+    profile: savedProfile,
+    model: aiResult.model
+  };
+}
+
+async function runDailyBriefsUpdate(dateStr) {
+  await initialize();
+  const dateTarget = dateStr || getCairoDateRange().start.split(' ')[0];
+  console.log(`[CustomerBrief] بدء التحديث اليومي لملخصات العملاء لتاريخ: ${dateTarget}`);
+  const activeChats = await db.getActiveChatsForDate(dateTarget);
+  console.log(`[CustomerBrief] تم العثور على ${activeChats.length} عميل نشط اليوم`);
+
+  let updatedCount = 0;
+  let errorCount = 0;
+
+  for (const chat of activeChats) {
+    try {
+      await generateOrUpdateCustomerBrief({ chatId: chat.chat_id });
+      updatedCount++;
+      // فترة راحة قصيرة لتفادي Rate Limits
+      await new Promise(r => setTimeout(r, 600));
+    } catch (err) {
+      errorCount++;
+      console.warn(`[CustomerBrief] فشل تحديث بريف العميل ${chat.chat_id}:`, err.message);
+    }
+  }
+
+  console.log(`[CustomerBrief] اكتمل التحديث اليومي: تم تحديث ${updatedCount}، أخطاء: ${errorCount}`);
+  return { date: dateTarget, total: activeChats.length, updated: updatedCount, errors: errorCount };
+}
+
 module.exports = {
   initialize,
   setUserDataPath,
@@ -906,5 +990,8 @@ module.exports = {
   getLatestMessageIds,
   getNewMessagesSince,
   getRecentSalesSeenUpdates,
+  getCustomerBrief,
+  generateOrUpdateCustomerBrief,
+  runDailyBriefsUpdate,
   DATA_RETENTION_DAYS
 };

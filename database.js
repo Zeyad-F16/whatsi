@@ -4,9 +4,9 @@ const crypto = require('crypto');
 const { formatCairoTime, getCairoDateString, getCairoDateRange } = require('./timezone');
 
 let pool;
-const DATA_RETENTION_DAYS = Math.max(1, Number(process.env.DATA_RETENTION_DAYS || 7));
+const DATA_RETENTION_DAYS = Math.max(1, Number(process.env.DATA_RETENTION_DAYS || 36500));
 const DATA_RETENTION_MS = DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-const RETENTION_SQL = `timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days'`;
+const RETENTION_SQL = DATA_RETENTION_DAYS >= 36500 ? '1=1' : `timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days'`;
 let audioTimestampCutoff = new Date(Date.now() - 5 * 60 * 1000);
 
 function setAudioTimestampCutoff(timestampSeconds) {
@@ -15,6 +15,7 @@ function setAudioTimestampCutoff(timestampSeconds) {
 }
 
 function isWithinRetention(timestamp) {
+  if (DATA_RETENTION_DAYS >= 36500) return true;
   const time = timestamp instanceof Date ? timestamp.getTime() : Date.parse(timestamp);
   return Number.isFinite(time) && time >= Date.now() - DATA_RETENTION_MS;
 }
@@ -50,6 +51,20 @@ async function initialize() {
       unread_count INT NOT NULL DEFAULT 0,
       PRIMARY KEY (account_id, chat_id)
     );
+    CREATE TABLE IF NOT EXISTS customer_profiles (
+      chat_id TEXT NOT NULL PRIMARY KEY,
+      customer_phone TEXT,
+      customer_name TEXT,
+      first_account_name TEXT,
+      last_account_name TEXT,
+      first_contact_at TIMESTAMPTZ DEFAULT NOW(),
+      last_contact_at TIMESTAMPTZ DEFAULT NOW(),
+      brief TEXT DEFAULT '',
+      status TEXT DEFAULT 'active',
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_customer_profiles_phone ON customer_profiles (customer_phone);
+    CREATE INDEX IF NOT EXISTS idx_customer_profiles_updated_at ON customer_profiles (updated_at);
   `);
   await backfillCustomerContactHistory();
   console.log('[Database] PostgreSQL connected; Prisma migration schema is ready.');
@@ -661,6 +676,10 @@ async function clearTodayMessages(date = null, accountId = null) {
 
 // Delete expired messages transactionally; audio records cascade to their outbox rows.
 async function purgeExpiredData() {
+  if (DATA_RETENTION_DAYS >= 36500) {
+    console.log('[Retention] Permanent retention active (Never Delete); skipping cleanup.');
+    return { messages: 0, audio: 0, audioIds: [], audioFiles: [] };
+  }
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
@@ -697,9 +716,56 @@ async function recordSalesChatSeen(accountId, chatId, unreadCount = 0, seenAt = 
   `, [accountId, chatId, seenAt, unreadCount]);
 }
 
+async function getCustomerProfile(chatId) {
+  if (!chatId) return null;
+  const p = getPool();
+  const res = await p.query(
+    'SELECT chat_id, customer_phone, customer_name, first_account_name, last_account_name, first_contact_at, last_contact_at, brief, status, updated_at FROM customer_profiles WHERE chat_id = $1',
+    [chatId]
+  );
+  return res.rows[0] || null;
+}
+
+async function saveCustomerProfile({ chatId, customerPhone, customerName, firstAccountName, lastAccountName, brief, status = 'active' }) {
+  if (!chatId) return null;
+  const p = getPool();
+  const res = await p.query(`
+    INSERT INTO customer_profiles (
+      chat_id, customer_phone, customer_name, first_account_name, last_account_name,
+      first_contact_at, last_contact_at, brief, status, updated_at
+    )
+    VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), $6, $7, NOW())
+    ON CONFLICT (chat_id)
+    DO UPDATE SET
+      customer_phone = COALESCE(EXCLUDED.customer_phone, customer_profiles.customer_phone),
+      customer_name = COALESCE(EXCLUDED.customer_name, customer_profiles.customer_name),
+      last_account_name = COALESCE(EXCLUDED.last_account_name, customer_profiles.last_account_name),
+      last_contact_at = NOW(),
+      brief = EXCLUDED.brief,
+      status = EXCLUDED.status,
+      updated_at = NOW()
+    RETURNING *;
+  `, [chatId, customerPhone || null, customerName || null, firstAccountName || null, lastAccountName || null, brief || '', status]);
+  return res.rows[0];
+}
+
+async function getActiveChatsForDate(dateStr) {
+  const p = getPool();
+  const { start, end } = getCairoDateRange(dateStr);
+  const res = await p.query(`
+    SELECT DISTINCT chat_id, customer_name, customer_phone, account_name
+    FROM (
+      SELECT chat_id, customer_name, customer_phone, account_name, timestamp FROM messages WHERE timestamp >= $1 AND timestamp <= $2 AND chat_id IS NOT NULL
+      UNION ALL
+      SELECT chat_id, customer_name, customer_phone, account_name, timestamp FROM audio_messages WHERE timestamp >= $1 AND timestamp <= $2 AND chat_id IS NOT NULL
+    ) active_today
+  `, [start, end]);
+  return res.rows;
+}
+
 module.exports = { initialize, close, setAudioTimestampCutoff, saveMessage, captureAudio, pendingAudioJobs, publishedAudioJobs, discardAudioJobsBefore, markAudioJobPublished,
   completeAudioJob, markAudioJobForRetry, getAudioJobState, updateAudioFilePath, updateAudioTranscript, getAudioMessages, getCustomerNumbers, getTodayMessages,
   formatMessagesForGemini, buildReportInputManifest, getTodayStats, clearTodayMessages, purgeExpiredData, getLocalDateString,
   getPool, formatPhoneNumber, updateCustomerPhoneForChat, getDailyReportRevision, getCachedDailyReport, storeDailyReportCache,
   recordGeminiUsage, REPORT_PROMPT_VERSION, getLeadFollowupContacts, saveSalesDailyScores, getMonthlySalesScores, DATA_RETENTION_DAYS, DATA_RETENTION_MS,
-  recordSalesChatSeen };
+  recordSalesChatSeen, getCustomerProfile, saveCustomerProfile, getActiveChatsForDate };

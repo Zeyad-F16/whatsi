@@ -427,15 +427,70 @@ async function testConnection() {
       console.warn(`[Gemini] Test with ${model} failed, trying next...`);
     }
   }
-  return { success: false, error: 'تعذر الاتصال بـ Gemini عبر أي من الموديلات المتاحة' };
+
+  return { success: false, message: 'تعذر الاتصال بجميع الموديلات' };
 }
 
+/**
+ * توليد أو تحديث بريف الطالب الدائم (Permanent Student Brief Dossier)
+ */
+async function generateCustomerBrief({ customerName, customerPhone, messages, existingBrief = '' }) {
+  const formattedChat = (messages || [])
+    .slice(-80)
+    .map(m => {
+      const senderLabel = m.sender === 'sales' ? `${m.accountName || m.account_name || 'السيلز'}` : (customerName || 'الطالب');
+      const time = m.displayTime || m.display_time || '';
+      const text = m.type === 'audio' ? `[تسجيل صوتي: ${m.transcript || 'بدون تفريغ'}]` : (m.text || '');
+      return `[${time}] ${senderLabel}: ${text}`;
+    })
+    .join('\n');
+
+  const prompt = `
+أنت خبير استشارات وتسجيل جامعي ومسؤول CRM في مؤسسة "خطوة" للدراسة بالخارج.
+المهمة: كتابة/تحديث "ملخص ملف الطالب (Student Dossier Brief)" بشكل شديد الدقة والتركيز والوضوح.
+
+بيانات الطالب الحالية:
+- اسم الطالب: ${customerName || 'غير محدد'}
+- رقم الهاتف: ${customerPhone || 'غير محدد'}
+
+${existingBrief ? `## الملف والبريف السابق للطالب:\n${existingBrief}\n\nيرجى البناء على الملف السابق والاحتفاظ بالمعلومات الهامة ودمج أي مستجدات أو تطورات جديدة ظهرت في المحادثة الحديثة.` : 'هذا أول بريف يتم توليده لهذا الطالب.'}
+
+## سجل الرسائل والمحادثات:
+${formattedChat || 'لا توجد رسائل مسجلة.'}
+
+المطلوب إخراج بريف منظم ومختصر باللغة العربية (بدون أي مقدمات ترحيبية أو كلام تمهيدي):
+• 🎓 التخصص والوجهة المطلوبة: (الجامعة، البلد، التخصص)
+• 💰 الميزانية والمصروفات: (إن ذُكرت)
+• 📑 موقف الأوراق والشهادات: (ما أرسله وما ينقصه)
+• 💬 آخر مستجدات وموقف التواصل: (ملخص آخر اتفاق أو سؤال وما توصلوا إليه)
+• 🎯 تقييم جدية العميل والخطوة التالية: (ليد ساخن / متابعة / متردد / مجهز أوراق / مستبعد، مع التوصية للخطوة القادمة)
+`;
+
+  for (const model of CANDIDATE_MODELS) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: { maxOutputTokens: 900 }
+      });
+      await recordUsage(response, { callType: 'customer_brief', model });
+      const brief = (response.text || '').trim();
+      return { success: true, brief, model };
+    } catch (error) {
+      console.warn(`[Gemini] Brief generation failed with ${model}:`, error.message);
+      await recordUsage(null, { callType: 'customer_brief', model, status: 'failed', error });
+    }
+  }
+
+  return { success: false, error: 'تعذر توليد بريف الطالب عبر نماذج الذكاء الاصطناعي المتاحة' };
+}
 
 module.exports = {
   setUsageRecorder,
   analyzeDailyChats,
   analyzeDailyChatsDelta,
   analyzeSingleChat,
+  generateCustomerBrief,
   transcribeAudio,
   testConnection
 };
