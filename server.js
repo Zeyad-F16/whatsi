@@ -265,14 +265,12 @@ async function startRealtimeLiveTracker() {
       const seenUpdates = await reportService.getRecentSalesSeenUpdates(lastKnownSeenTime);
       if (seenUpdates && seenUpdates.length > 0) {
         lastKnownSeenTime = seenUpdates[seenUpdates.length - 1].seenAt;
-        for (const update of seenUpdates) {
-          const payload = `data: ${JSON.stringify({ type: 'chat_unread_updated', accountId: update.accountId, chatId: update.chatId, unreadCount: update.unreadCount })}\n\n`;
-          for (const client of sseClients) {
-            try {
-              client.write(payload);
-            } catch (e) {
-              sseClients.delete(client);
-            }
+        const payload = `data: ${JSON.stringify({ type: 'batch_unread_updated', updates: seenUpdates })}\n\n`;
+        for (const client of sseClients) {
+          try {
+            client.write(payload);
+          } catch (e) {
+            sseClients.delete(client);
           }
         }
       }

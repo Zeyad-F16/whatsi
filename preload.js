@@ -439,11 +439,20 @@ function hookChatCollection(ChatCollection) {
   if (chatCollectionHooked || !ChatCollection) return;
   chatCollectionHooked = true;
 
+  const lastReportedUnreadMap = new Map();
+
   function reportChatUnread(chatModel) {
     try {
       const chatId = chatModel.id?._serialized || chatModel.get?.('id')?._serialized;
       if (!chatId) return;
       const count = Number(chatModel.unreadCount ?? chatModel.get?.('unreadCount') ?? 0);
+      
+      // تفادي إرسال نفس الحالة مراراً وتكراراً لمنع الضغط واللاج
+      if (lastReportedUnreadMap.get(chatId) === count) {
+        return;
+      }
+      lastReportedUnreadMap.set(chatId, count);
+
       ipcRenderer.send('chat-unread-updated', {
         accountId: accountId || 'account-default',
         chatId,
@@ -464,11 +473,10 @@ function hookChatCollection(ChatCollection) {
     } catch (_) {}
   }
 
-  // مزامنة دورية وشاملة لكل المحادثات لضمان دقة أرقام غير المقروء كواتساب الأصلي تماماً
-  setTimeout(syncAllChatsUnread, 1500);
-  setTimeout(syncAllChatsUnread, 5000);
-  setTimeout(syncAllChatsUnread, 15000);
-  setInterval(syncAllChatsUnread, 20000);
+  // مزامنة هادئة عند اكتمال تحميل واتساب ودورية كل دقيقتين بدون أي ضغط على الشبكة
+  setTimeout(syncAllChatsUnread, 3000);
+  setTimeout(syncAllChatsUnread, 10000);
+  setInterval(syncAllChatsUnread, 120000);
 
   try {
     ChatCollection.on?.('change:unreadCount', reportChatUnread);

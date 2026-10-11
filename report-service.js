@@ -888,7 +888,7 @@ async function getRecentSalesSeenUpdates(since) {
     await initialize();
     const pool = db.getPool();
     const res = await pool.query(
-      'SELECT account_id, chat_id, unread_count, seen_at FROM sales_chat_seen WHERE seen_at > $1 ORDER BY seen_at ASC',
+      'SELECT account_id, chat_id, unread_count, seen_at FROM sales_chat_seen WHERE seen_at > $1 ORDER BY seen_at ASC LIMIT 200',
       [since || new Date(0)]
     );
     return res.rows.map(r => ({

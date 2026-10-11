@@ -684,6 +684,8 @@ function connectSSE() {
       const data = JSON.parse(event.data);
       if (data.type === 'new_events' && Array.isArray(data.events)) {
         handleIncomingLiveEvents(data.events);
+      } else if (data.type === 'batch_unread_updated' && Array.isArray(data.updates)) {
+        handleBatchSalesUnreadUpdate(data.updates);
       } else if (data.type === 'chat_unread_updated') {
         handleSalesUnreadUpdate(data);
       }
@@ -698,38 +700,70 @@ function connectSSE() {
   };
 }
 
+let countersRefreshTimer = null;
+let railCountersFetchInFlight = false;
+
+function scheduleCountersRefresh() {
+  if (countersRefreshTimer) return;
+  countersRefreshTimer = setTimeout(async () => {
+    countersRefreshTimer = null;
+    applyChatFilter();
+    if (!railCountersFetchInFlight) {
+      railCountersFetchInFlight = true;
+      try {
+        await refreshRailUnreadCounters();
+      } catch (_) {
+      } finally {
+        railCountersFetchInFlight = false;
+      }
+    }
+  }, 400);
+}
+
+function handleBatchSalesUnreadUpdate(updates) {
+  if (!Array.isArray(updates) || !updates.length) return;
+  let anyStateChanged = false;
+
+  for (const data of updates) {
+    if (!data || !data.chatId) continue;
+    if (selectedSalesAccountId && data.accountId && data.accountId !== selectedSalesAccountId) continue;
+
+    const count = Number(data.unreadCount) || 0;
+    const chat = chats.find(c => c.chatId === data.chatId);
+    if (chat && chat.unreadCount !== count) {
+      chat.unreadCount = count;
+      anyStateChanged = true;
+    }
+
+    const badgeEl = document.getElementById(`wa-chat-badge-${data.chatId}`);
+    const timeEl = document.getElementById(`wa-chat-time-${data.chatId}`);
+    const nameEl = document.getElementById(`wa-chat-name-${data.chatId}`);
+
+    if (count === 0) {
+      if (badgeEl) {
+        badgeEl.style.display = 'none';
+        badgeEl.textContent = '0';
+      }
+      if (timeEl) timeEl.classList.remove('unread');
+      if (nameEl) nameEl.style.fontWeight = 'normal';
+    } else {
+      if (badgeEl) {
+        badgeEl.textContent = count;
+        badgeEl.style.display = 'inline-flex';
+      }
+      if (timeEl) timeEl.classList.add('unread');
+      if (nameEl) nameEl.style.fontWeight = '700';
+    }
+  }
+
+  if (anyStateChanged) {
+    scheduleCountersRefresh();
+  }
+}
+
 function handleSalesUnreadUpdate(data) {
   if (!data || !data.chatId) return;
-  if (selectedSalesAccountId && data.accountId && data.accountId !== selectedSalesAccountId) return;
-
-  const badgeEl = document.getElementById(`wa-chat-badge-${data.chatId}`);
-  const timeEl = document.getElementById(`wa-chat-time-${data.chatId}`);
-  const nameEl = document.getElementById(`wa-chat-name-${data.chatId}`);
-  const count = Number(data.unreadCount) || 0;
-
-  if (count === 0) {
-    if (badgeEl) {
-      badgeEl.style.display = 'none';
-      badgeEl.textContent = '0';
-    }
-    if (timeEl) timeEl.classList.remove('unread');
-    if (nameEl) nameEl.style.fontWeight = 'normal';
-  } else {
-    if (badgeEl) {
-      badgeEl.textContent = count;
-      badgeEl.style.display = 'inline-flex';
-    }
-    if (timeEl) timeEl.classList.add('unread');
-    if (nameEl) nameEl.style.fontWeight = '700';
-  }
-
-  const chat = chats.find(c => c.chatId === data.chatId);
-  if (chat) {
-    chat.unreadCount = count;
-  }
-
-  applyChatFilter();
-  refreshRailUnreadCounters();
+  handleBatchSalesUnreadUpdate([data]);
 }
 
 function handleIncomingLiveEvents(events) {
@@ -808,8 +842,7 @@ function updateChatSidebarOnEvent(event) {
       if (chat) chat.unreadCount = newCount;
     }
 
-    applyChatFilter();
-    refreshRailUnreadCounters();
+    scheduleCountersRefresh();
   } else {
     // محادثة جديدة لم تكن بالقائمة، نعيد جلب القائمة
     loadChatsList();
