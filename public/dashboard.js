@@ -11,12 +11,25 @@ let currentMainTab = 'whatsapp';
 let accounts = [];
 let chats = [];
 let activeChatId = null;
+let selectedSalesAccountId = '';
+let currentChatFilterChip = 'all'; // 'all' | 'unread'
 let currentPeriod = 'today';
 let reportData = null;
 let latestEvidenceGate = null;
 let editingAccountId = null;
 let sseConnection = null;
 let searchDebounceTimer = null;
+
+const AVATAR_COLORS = [
+  'linear-gradient(135deg, #00a884, #005c4b)', // Emerald
+  'linear-gradient(135deg, #53bdeb, #128c7e)', // Cyan / Sea
+  'linear-gradient(135deg, #7c4dff, #4a148c)', // Purple
+  'linear-gradient(135deg, #ff9100, #d84315)', // Orange
+  'linear-gradient(135deg, #ff4081, #c2185b)', // Rose
+  'linear-gradient(135deg, #00e676, #1b5e20)', // Green
+  'linear-gradient(135deg, #ffd600, #ff6f00)', // Amber
+  'linear-gradient(135deg, #00b0ff, #0d47a1)'  // Blue
+];
 
 const dayNamesArabic = {
   6: 'السبت',
@@ -30,7 +43,6 @@ const dayNamesArabic = {
 
 // ===== Elements =====
 const reportAccountSelect = document.getElementById('report-account');
-const waFilterAccount = document.getElementById('wa-filter-account');
 const waSearchInput = document.getElementById('wa-search-input');
 const waChatListContainer = document.getElementById('wa-chat-list-container');
 const waEmptyChatState = document.getElementById('wa-empty-chat-state');
@@ -78,7 +90,7 @@ async function loadAccounts() {
 }
 
 function populateAccountDropdowns() {
-  // 1. القائمة في لوحة التقارير
+  // 1. القائمة في لوحة التقارير (AI Dashboard)
   if (reportAccountSelect) {
     const prevVal = reportAccountSelect.value;
     reportAccountSelect.innerHTML = '<option value="">كل الحسابات</option>';
@@ -91,17 +103,162 @@ function populateAccountDropdowns() {
     if (prevVal) reportAccountSelect.value = prevVal;
   }
 
-  // 2. القائمة في المحادثات الحية
-  if (waFilterAccount) {
-    const prevVal = waFilterAccount.value;
-    waFilterAccount.innerHTML = '<option value="">جميع خطوط المبيعات (كل الحسابات)</option>';
-    for (const acc of accounts) {
-      const opt = document.createElement('option');
-      opt.value = acc.id;
-      opt.textContent = acc.name;
-      waFilterAccount.appendChild(opt);
+  // 2. العامود الرأسي للسيلز في واجهة واتساب
+  renderAccountsRail();
+}
+
+function renderAccountsRail() {
+  const container = document.getElementById('wa-rail-accounts-list');
+  if (!container) return;
+
+  container.innerHTML = accounts.map((acc, idx) => {
+    const color = AVATAR_COLORS[idx % AVATAR_COLORS.length];
+    const initial = (acc.name || 'س').charAt(0).toUpperCase();
+    const isActive = selectedSalesAccountId === acc.id;
+
+    return `
+      <div class="wa-rail-item ${isActive ? 'active' : ''}" 
+           id="wa-rail-acc-${escapeAttr(acc.id)}" 
+           onclick="selectSalesAccount('${escapeAttr(acc.id)}')" 
+           title="${escapeHtml(acc.name)}">
+        <div class="wa-rail-avatar" style="background: ${color};">
+          <span>${initial}</span>
+          <span class="wa-rail-badge" id="wa-rail-badge-${escapeAttr(acc.id)}" style="display: none;">0</span>
+        </div>
+        <span class="wa-rail-label">${escapeHtml(acc.name)}</span>
+      </div>
+    `;
+  }).join('');
+
+  updateRailActiveItem();
+}
+
+window.selectSalesAccount = function(accountId) {
+  selectedSalesAccountId = accountId || '';
+  updateRailActiveItem();
+
+  // تحديث عنوان الـ Sidebar
+  const titleEl = document.getElementById('wa-current-account-title');
+  if (titleEl) {
+    if (!selectedSalesAccountId) {
+      titleEl.textContent = 'جميع خطوط المبيعات';
+    } else {
+      const acc = accounts.find(a => a.id === selectedSalesAccountId);
+      titleEl.textContent = acc ? acc.name : selectedSalesAccountId;
     }
-    if (prevVal) waFilterAccount.value = prevVal;
+  }
+
+  loadChatsList();
+  if (activeChatId) {
+    reloadCurrentChatMessages();
+  }
+};
+
+function updateRailActiveItem() {
+  const allItem = document.getElementById('wa-rail-item-all');
+  if (allItem) {
+    allItem.classList.toggle('active', !selectedSalesAccountId);
+  }
+
+  accounts.forEach(acc => {
+    const el = document.getElementById(`wa-rail-acc-${acc.id}`);
+    if (el) {
+      el.classList.toggle('active', selectedSalesAccountId === acc.id);
+    }
+  });
+}
+
+window.setChatFilterChip = function(mode) {
+  currentChatFilterChip = mode;
+  const chipAll = document.getElementById('wa-chip-all');
+  const chipUnread = document.getElementById('wa-chip-unread');
+  if (chipAll) chipAll.classList.toggle('active', mode === 'all');
+  if (chipUnread) chipUnread.classList.toggle('active', mode === 'unread');
+
+  applyChatFilter();
+};
+
+function applyChatFilter() {
+  if (!chats || !chats.length) {
+    renderChatsList([]);
+    return;
+  }
+
+  if (currentChatFilterChip === 'unread') {
+    const unreadChats = chats.filter(chat => {
+      const isSales = chat.lastSender === 'sales';
+      const effectiveUnread = !isSales ? (Number(chat.unreadCount) || 0) : 0;
+      return effectiveUnread > 0;
+    });
+    renderChatsList(unreadChats);
+  } else {
+    renderChatsList(chats);
+  }
+}
+
+function updateRailUnreadCountersFromList(chatList) {
+  if (!Array.isArray(chatList)) return;
+  let totalAllUnread = 0;
+  const countPerAccount = {};
+  accounts.forEach(acc => { countPerAccount[acc.id] = 0; });
+
+  chatList.forEach(chat => {
+    const isSales = chat.lastSender === 'sales';
+    const effectiveUnread = !isSales ? (Number(chat.unreadCount) || 0) : 0;
+    if (effectiveUnread > 0) {
+      totalAllUnread += 1;
+      if (chat.accountId && countPerAccount[chat.accountId] !== undefined) {
+        countPerAccount[chat.accountId] += 1;
+      }
+    }
+  });
+
+  // 1. All badge in rail
+  const allBadge = document.getElementById('wa-rail-badge-all');
+  if (allBadge) {
+    if (totalAllUnread > 0) {
+      allBadge.textContent = totalAllUnread > 99 ? '99+' : totalAllUnread;
+      allBadge.style.display = 'inline-flex';
+    } else {
+      allBadge.style.display = 'none';
+    }
+  }
+
+  // 2. Chip badge in sidebar
+  const chipBadge = document.getElementById('wa-unread-chip-count');
+  if (chipBadge) {
+    if (totalAllUnread > 0) {
+      chipBadge.textContent = totalAllUnread > 99 ? '99+' : totalAllUnread;
+      chipBadge.style.display = 'inline-flex';
+    } else {
+      chipBadge.style.display = 'none';
+    }
+  }
+
+  // 3. Badges per sales account in rail
+  accounts.forEach(acc => {
+    const badge = document.getElementById(`wa-rail-badge-${acc.id}`);
+    if (badge) {
+      const c = countPerAccount[acc.id] || 0;
+      if (c > 0) {
+        badge.textContent = c > 99 ? '99+' : c;
+        badge.style.display = 'inline-flex';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  });
+}
+
+async function refreshRailUnreadCounters() {
+  try {
+    const res = await fetch('/api/chats');
+    const data = await res.json();
+    if (data.success && Array.isArray(data.chats)) {
+      updateRailUnreadCountersFromList(data.chats);
+    }
+  } catch (e) {
+    console.warn('Failed to refresh rail unread counters:', e);
   }
 }
 
@@ -120,7 +277,7 @@ window.handleChatSearch = function(e) {
 };
 
 async function loadChatsList() {
-  const accountId = waFilterAccount ? waFilterAccount.value : '';
+  const accountId = selectedSalesAccountId || '';
   const search = waSearchInput ? waSearchInput.value.trim() : '';
 
   try {
@@ -128,7 +285,13 @@ async function loadChatsList() {
     const data = await res.json();
     if (data.success && Array.isArray(data.chats)) {
       chats = data.chats;
-      renderChatsList(chats);
+      applyChatFilter();
+
+      if (!accountId) {
+        updateRailUnreadCountersFromList(chats);
+      } else {
+        refreshRailUnreadCounters();
+      }
     }
   } catch (err) {
     console.error('Failed to load chats:', err);
@@ -206,7 +369,7 @@ window.reloadCurrentChatMessages = async function() {
   waChatMessagesScroll.innerHTML = '<div style="padding: 20px; text-align: center; color: #8696a0;">جاري تحميل الرسائل والتسجيلات...</div>';
 
   try {
-    const accountId = waFilterAccount ? waFilterAccount.value : '';
+    const accountId = selectedSalesAccountId || '';
     const url = `/api/chat-messages?chatId=${encodeURIComponent(activeChatId)}${accountId ? `&accountId=${encodeURIComponent(accountId)}` : ''}`;
     const res = await fetch(url);
     const data = await res.json();
@@ -334,8 +497,7 @@ function connectSSE() {
 
 function handleSalesUnreadUpdate(data) {
   if (!data || !data.chatId) return;
-  const currentAcc = waFilterAccount ? waFilterAccount.value : '';
-  if (currentAcc && data.accountId && data.accountId !== currentAcc) return;
+  if (selectedSalesAccountId && data.accountId && data.accountId !== selectedSalesAccountId) return;
 
   const badgeEl = document.getElementById(`wa-chat-badge-${data.chatId}`);
   const timeEl = document.getElementById(`wa-chat-time-${data.chatId}`);
@@ -362,14 +524,18 @@ function handleSalesUnreadUpdate(data) {
   if (chat) {
     chat.unreadCount = count;
   }
+
+  refreshRailUnreadCounters();
+  if (currentChatFilterChip === 'unread') {
+    applyChatFilter();
+  }
 }
 
 function handleIncomingLiveEvents(events) {
   let activeChatReceived = false;
-  const currentAcc = waFilterAccount ? waFilterAccount.value : '';
 
   for (const event of events) {
-    const matchesAccount = !currentAcc || event.accountId === currentAcc || event.accountName === currentAcc;
+    const matchesAccount = !selectedSalesAccountId || event.accountId === selectedSalesAccountId || event.accountName === selectedSalesAccountId;
 
     // 1. إذا كانت الرسالة تخص الشات المفتوح حالياً وتطابق الفلتر المختار
     if (activeChatId && event.chatId === activeChatId && matchesAccount) {
@@ -382,6 +548,8 @@ function handleIncomingLiveEvents(events) {
       updateChatSidebarOnEvent(event);
     }
   }
+
+  refreshRailUnreadCounters();
 
   // 3. تحديث كروت الإحصائيات الحية
   refreshLiveData();
@@ -437,6 +605,11 @@ function updateChatSidebarOnEvent(event) {
 
       const chat = chats.find(c => c.chatId === event.chatId);
       if (chat) chat.unreadCount = newCount;
+    }
+
+    refreshRailUnreadCounters();
+    if (currentChatFilterChip === 'unread') {
+      applyChatFilter();
     }
   } else {
     // محادثة جديدة لم تكن بالقائمة، نعيد جلب القائمة

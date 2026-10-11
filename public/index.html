@@ -146,53 +146,229 @@
       background: #111b21;
     }
 
-    /* Sidebar Chats List */
+    /* ─── 1. Vertical Sales Accounts Rail (عمود السيلز الرأسي) ─── */
+    .wa-accounts-rail {
+      width: 72px;
+      min-width: 72px;
+      height: 100%;
+      background: #111b21;
+      border-left: 1px solid #202c33;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px 0 8px 0;
+      box-sizing: border-box;
+      user-select: none;
+      z-index: 20;
+      flex-shrink: 0;
+    }
+
+    .wa-rail-item {
+      width: 100%;
+      background: none;
+      border: none;
+      padding: 6px 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 3px;
+      cursor: pointer;
+      position: relative;
+      transition: all 0.2s ease;
+      outline: none;
+    }
+
+    .wa-rail-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: #202c33;
+      color: #e9edef;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1.05rem;
+      position: relative;
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+
+    .wa-rail-all-avatar {
+      background: linear-gradient(135deg, #00a884, #005c4b);
+      color: #fff;
+    }
+
+    .wa-rail-tool-avatar {
+      background: #182229;
+      font-size: 1.15rem;
+    }
+
+    .wa-rail-item:hover .wa-rail-avatar {
+      transform: scale(1.08);
+      box-shadow: 0 2px 8px rgba(0, 168, 132, 0.4);
+    }
+
+    .wa-rail-label {
+      font-size: 0.68rem;
+      color: #8696a0;
+      font-weight: 500;
+      max-width: 62px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      text-align: center;
+      transition: color 0.2s;
+    }
+
+    .wa-rail-item.active .wa-rail-label {
+      color: #00a884;
+      font-weight: 700;
+    }
+
+    .wa-rail-item.active .wa-rail-avatar {
+      box-shadow: 0 0 0 2.5px #00a884;
+      transform: scale(1.05);
+    }
+
+    /* Active vertical indicator bar on outer right edge */
+    .wa-rail-item::after {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%) scaleY(0);
+      width: 4px;
+      height: 28px;
+      background: #00a884;
+      border-radius: 4px 0 0 4px;
+      transition: transform 0.2s ease;
+    }
+
+    .wa-rail-item.active::after {
+      transform: translateY(-50%) scaleY(1);
+    }
+
+    .wa-rail-badge {
+      position: absolute;
+      top: -2px;
+      left: 0px;
+      background: #00a884;
+      color: #111b21;
+      font-size: 0.65rem;
+      font-weight: 800;
+      min-width: 17px;
+      height: 17px;
+      line-height: 17px;
+      border-radius: 9px;
+      padding: 0 4px;
+      text-align: center;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    }
+
+    .wa-rail-divider {
+      width: 38px;
+      height: 1px;
+      background: #202c33;
+      margin: 8px 0;
+      flex-shrink: 0;
+    }
+
+    .wa-rail-list-scroll {
+      flex: 1;
+      width: 100%;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .wa-rail-list-scroll::-webkit-scrollbar {
+      display: none;
+    }
+
+    .wa-rail-footer {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      padding-top: 8px;
+      border-top: 1px solid #202c33;
+      flex-shrink: 0;
+    }
+
+    /* ─── 2. Sidebar Chats List ─── */
     .wa-chats-sidebar {
       width: 380px;
       background: #111b21;
-      border-left: 1px solid #222d34;
+      border-left: 1px solid #202c33;
       display: flex;
       flex-direction: column;
       flex-shrink: 0;
     }
 
     .wa-sidebar-header {
-      padding: 12px 16px;
-      background: #202c33;
-      border-bottom: 1px solid #222d34;
+      padding: 12px 16px 8px 16px;
+      background: #111b21;
+      border-bottom: 1px solid #202c33;
       display: flex;
       flex-direction: column;
       gap: 10px;
     }
 
-    .wa-account-selector-row {
+    .wa-sidebar-title-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
     }
 
-    .wa-account-select {
-      background: #111b21;
-      color: #e9edef;
-      border: 1px solid #2a3942;
-      border-radius: 8px;
-      padding: 6px 10px;
-      font-family: inherit;
-      font-size: 0.82rem;
-      direction: rtl;
+    .wa-sidebar-user-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .wa-user-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #00a884;
+      display: inline-block;
+      box-shadow: 0 0 6px #00a884;
+    }
+
+    .wa-icon-btn {
+      background: none;
+      border: none;
+      color: #aebac1;
+      font-size: 1rem;
       cursor: pointer;
-      outline: none;
-      flex: 1;
+      padding: 6px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .wa-icon-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #e9edef;
     }
 
     .wa-search-box {
       display: flex;
       align-items: center;
-      background: #111b21;
+      background: #202c33;
       border-radius: 8px;
-      padding: 6px 12px;
-      gap: 8px;
-      border: 1px solid #2a3942;
+      padding: 7px 12px;
+      gap: 10px;
+      border: none;
     }
 
     .wa-search-input {
@@ -200,9 +376,50 @@
       border: none;
       color: #e9edef;
       font-family: inherit;
-      font-size: 0.85rem;
+      font-size: 0.88rem;
       width: 100%;
       outline: none;
+    }
+
+    .wa-filter-chips {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 2px 0 2px 0;
+    }
+
+    .wa-chip {
+      background: #202c33;
+      color: #8696a0;
+      border: none;
+      border-radius: 16px;
+      padding: 5px 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .wa-chip:hover {
+      background: #2a3942;
+      color: #e9edef;
+    }
+
+    .wa-chip.active {
+      background: #005c4b;
+      color: #00a884;
+    }
+
+    .wa-chip-badge {
+      background: #00a884;
+      color: #111b21;
+      font-size: 0.65rem;
+      font-weight: 800;
+      padding: 1px 6px;
+      border-radius: 10px;
     }
 
     .wa-chat-list-scroll {
@@ -457,6 +674,48 @@
       color: #53bdeb;
       display: inline-block;
     }
+    .wa-chat-footer-simulated {
+      background: #202c33;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-top: 1px solid #202c33;
+      z-index: 10;
+    }
+
+    .wa-footer-icon-btn {
+      background: none;
+      border: none;
+      color: #8696a0;
+      font-size: 1.25rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px;
+      transition: color 0.2s;
+    }
+
+    .wa-footer-icon-btn:hover {
+      color: #e9edef;
+    }
+
+    .wa-footer-input-simulated {
+      flex: 1;
+      background: #2a3942;
+      border-radius: 8px;
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      direction: rtl;
+    }
+
+    .wa-footer-placeholder {
+      font-size: 0.84rem;
+      color: #8696a0;
+      user-select: none;
+    }
 
     .wa-empty-chat-state {
       flex: 1;
@@ -575,34 +834,74 @@
     <section id="view-whatsapp" class="viewport-view active">
       <div class="whatsapp-full-container">
         
-        <!-- Sidebar Chats List -->
+        <!-- Column 1: Vertical Accounts Navigation Rail -->
+        <aside class="wa-accounts-rail" id="wa-accounts-rail">
+          <!-- Top: All Accounts Button -->
+          <div class="wa-rail-item active" id="wa-rail-item-all" onclick="selectSalesAccount('')" title="جميع خطوط المبيعات">
+            <div class="wa-rail-avatar wa-rail-all-avatar">
+              <span>👥</span>
+              <span class="wa-rail-badge" id="wa-rail-badge-all" style="display: none;">0</span>
+            </div>
+            <span class="wa-rail-label">الكل</span>
+          </div>
+
+          <div class="wa-rail-divider"></div>
+
+          <!-- Scrollable Accounts List -->
+          <div class="wa-rail-list-scroll" id="wa-rail-accounts-list">
+            <!-- Dynamically populated sales accounts -->
+          </div>
+
+          <!-- Bottom Utility Icons -->
+          <div class="wa-rail-footer">
+            <button class="wa-icon-btn" onclick="switchMainTab('dashboard')" title="لوحة التقارير والتدقيق">📊</button>
+            <button class="wa-icon-btn" onclick="openSchedulesModal()" title="إعدادات مواعيد العمل">⚙️</button>
+          </div>
+        </aside>
+
+        <!-- Column 2: Sidebar Chats List -->
         <aside class="wa-chats-sidebar">
           <div class="wa-sidebar-header">
-            <div class="wa-account-selector-row">
-              <select id="wa-filter-account" class="wa-account-select" onchange="filterChatsByAccount()">
-                <option value="">جميع خطوط المبيعات (كل الحسابات)</option>
-              </select>
+            <div class="wa-sidebar-title-row">
+              <div class="wa-sidebar-user-pill">
+                <span class="wa-user-dot"></span>
+                <span id="wa-current-account-title" style="font-weight: 700; font-size: 0.95rem; color: #e9edef;">جميع خطوط المبيعات</span>
+              </div>
+              <button class="wa-icon-btn" onclick="loadChatsList()" title="تحديث قائمة الشات">🔄</button>
             </div>
+
+            <!-- Search Bar -->
             <div class="wa-search-box">
-              <span style="color:#8696a0;">🔍</span>
-              <input type="text" id="wa-search-input" class="wa-search-input" placeholder="بحث بالاسم أو رقم الهاتف..." oninput="handleChatSearch(event)" />
+              <span style="color:#8696a0; font-size: 0.9rem;">🔍</span>
+              <input type="text" id="wa-search-input" class="wa-search-input" placeholder="بحث في المحادثات أو بالرقم..." oninput="handleChatSearch(event)" />
+            </div>
+
+            <!-- Filter Chips (All vs Unread) -->
+            <div class="wa-filter-chips">
+              <button class="wa-chip active" id="wa-chip-all" onclick="setChatFilterChip('all')">
+                الكل
+              </button>
+              <button class="wa-chip" id="wa-chip-unread" onclick="setChatFilterChip('unread')">
+                غير مقروءة
+                <span class="wa-chip-badge" id="wa-unread-chip-count" style="display: none;">0</span>
+              </button>
             </div>
           </div>
 
-          <!-- Chat List -->
+          <!-- Chat List Scroll -->
           <div class="wa-chat-list-scroll" id="wa-chat-list-container">
             <div style="padding: 30px; text-align: center; color: #8696a0;">جاري تحميل المحادثات...</div>
           </div>
         </aside>
 
-        <!-- Active Chat Window -->
+        <!-- Column 3: Active Chat Window -->
         <main class="wa-conversation-panel" id="wa-conversation-panel">
           
           <!-- Empty State (No Chat Selected) -->
           <div class="wa-empty-chat-state" id="wa-empty-chat-state">
-            <img src="whatsi.png" style="width: 80px; height: 80px; opacity: 0.8; border-radius: 20px;" />
-            <h3>اختر محادثة لعرض الرسائل والتسجيلات الصوتية</h3>
-            <p>يتم بث كل رسالة نصية أو فويس نوت لحظياً ثانية بثانية مع التفريغ الصوتي ونبرة الصوت.</p>
+            <img src="whatsi.png" style="width: 80px; height: 80px; opacity: 0.85; border-radius: 20px; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.4));" />
+            <h3>واتساب للأعمال - رقابة المحادثات الحية</h3>
+            <p>اختر محادثة من القائمة لعرض الرسائل والتسجيلات الصوتية الحية والتفريغ الفوري بالذكاء الاصطناعي.</p>
           </div>
 
           <!-- Active Conversation -->
@@ -617,13 +916,24 @@
                   <p id="wa-active-meta">رقم الهاتف · خط السيلز</p>
                 </div>
               </div>
-              <div>
+              <div style="display:flex; align-items:center; gap:8px;">
                 <button class="action-btn refresh-btn" onclick="reloadCurrentChatMessages()" title="تحديث الرسائل">🔄 تحديث</button>
               </div>
             </div>
 
             <!-- Messages Stream Area -->
             <div class="wa-chat-messages-scroll" id="wa-chat-messages-scroll"></div>
+
+            <!-- Simulated WhatsApp Message Input Footer -->
+            <div class="wa-chat-footer-simulated">
+              <button class="wa-footer-icon-btn" title="رموز تعبيرية">😊</button>
+              <button class="wa-footer-icon-btn" title="إرفاق ملف">📎</button>
+              <div class="wa-footer-input-simulated">
+                <span class="wa-footer-placeholder">عرض مباشر للقراءة فقط (Live Monitor Mode)</span>
+              </div>
+              <button class="wa-footer-icon-btn" title="تسجيل صوتي">🎤</button>
+            </div>
+
           </div>
 
         </main>
