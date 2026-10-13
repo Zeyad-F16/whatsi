@@ -573,24 +573,123 @@ window.openChat = async function(chatId) {
   await reloadCurrentChatMessages();
 };
 
+// ===== Chat Pagination State =====
+let currentChatOldestTimestamp = null;
+let currentChatHasMore = false;
+let isLoadingOlderMessages = false;
+const CHAT_PAGE_SIZE = 30;
+
 window.reloadCurrentChatMessages = async function() {
   if (!activeChatId || !waChatMessagesScroll) return;
 
-  waChatMessagesScroll.innerHTML = '<div style="padding: 20px; text-align: center; color: #8696a0;">جاري تحميل الرسائل والتسجيلات...</div>';
+  currentChatOldestTimestamp = null;
+  currentChatHasMore = false;
+  isLoadingOlderMessages = false;
+
+  waChatMessagesScroll.innerHTML = '<div style="padding: 24px; text-align: center; color: #8696a0;">جاري تحميل أحدث الرسائل...</div>';
 
   try {
     const accountId = selectedSalesAccountId || '';
-    const url = `/api/chat-messages?chatId=${encodeURIComponent(activeChatId)}${accountId ? `&accountId=${encodeURIComponent(accountId)}` : ''}`;
+    const url = `/api/chat-messages?chatId=${encodeURIComponent(activeChatId)}&limit=${CHAT_PAGE_SIZE}${accountId ? `&accountId=${encodeURIComponent(accountId)}` : ''}`;
     const res = await fetch(url);
     const data = await res.json();
     if (data.success && Array.isArray(data.messages)) {
+      currentChatHasMore = Boolean(data.hasMore);
+      if (data.messages.length > 0) {
+        currentChatOldestTimestamp = data.messages[0].timestamp;
+      }
       renderChatMessages(data.messages);
       scrollToBottom();
+    } else {
+      throw new Error(data.error || 'تعذر جلب الرسائل');
     }
   } catch (err) {
-    waChatMessagesScroll.innerHTML = `<div style="padding: 20px; color: red;">خطأ: ${err.message}</div>`;
+    waChatMessagesScroll.innerHTML = `<div style="padding: 20px; color: #ff4d4f; text-align: center;">خطأ في تحميل الرسائل: ${escapeHtml(err.message)}</div>`;
   }
 };
+
+window.loadOlderMessages = async function() {
+  if (!activeChatId || isLoadingOlderMessages || !currentChatHasMore || !currentChatOldestTimestamp) return;
+
+  const btn = document.getElementById('wa-load-more-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-icon">⏳</span><span class="btn-text">جاري تحميل الرسائل الأقدم...</span>';
+  }
+
+  isLoadingOlderMessages = true;
+
+  try {
+    const accountId = selectedSalesAccountId || '';
+    const url = `/api/chat-messages?chatId=${encodeURIComponent(activeChatId)}&beforeTimestamp=${encodeURIComponent(currentChatOldestTimestamp)}&limit=${CHAT_PAGE_SIZE}${accountId ? `&accountId=${encodeURIComponent(accountId)}` : ''}`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (data.success && Array.isArray(data.messages) && data.messages.length > 0) {
+      const olderMessages = data.messages;
+      currentChatOldestTimestamp = olderMessages[0].timestamp;
+      currentChatHasMore = Boolean(data.hasMore);
+
+      // حفظ موضع التمرير وارتفاع الحاوية قبل التعديل
+      const prevScrollHeight = waChatMessagesScroll.scrollHeight;
+      const prevScrollTop = waChatMessagesScroll.scrollTop;
+
+      // العثور على أول فقاعة رسالة لإدراج الرسائل الأقدم قبلها
+      const firstMsgBubble = waChatMessagesScroll.querySelector('.wa-msg-bubble');
+
+      const fragment = document.createDocumentFragment();
+      olderMessages.forEach(msg => {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = renderSingleMessageBubble(msg);
+        if (tempDiv.firstElementChild) {
+          fragment.appendChild(tempDiv.firstElementChild);
+        }
+      });
+
+      if (firstMsgBubble) {
+        waChatMessagesScroll.insertBefore(fragment, firstMsgBubble);
+      } else {
+        waChatMessagesScroll.appendChild(fragment);
+      }
+
+      // تحديث حالة زر التحميل أو إشارة بداية المحادثة
+      updateLoadMoreHeader();
+
+      // إعادة ضبط موضع التمرير لمنع القفز المفاجئ
+      const newScrollHeight = waChatMessagesScroll.scrollHeight;
+      waChatMessagesScroll.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+    } else {
+      currentChatHasMore = false;
+      updateLoadMoreHeader();
+    }
+  } catch (err) {
+    console.error('Failed to load older messages:', err);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<span class="btn-icon">⚠️</span><span class="btn-text">فشل التحميل، اضغط للمحاولة ثانية</span>';
+    }
+  } finally {
+    isLoadingOlderMessages = false;
+  }
+};
+
+function updateLoadMoreHeader() {
+  const container = document.getElementById('wa-load-more-container');
+  if (!container) return;
+
+  if (currentChatHasMore) {
+    container.innerHTML = `
+      <button class="wa-load-more-btn" id="wa-load-more-btn" onclick="loadOlderMessages()">
+        <span class="btn-icon">⬆️</span>
+        <span class="btn-text">تحميل رسائل أقدم</span>
+      </button>
+    `;
+  } else {
+    container.innerHTML = `
+      <span class="wa-chat-beginning-tag">🔒 بداية المحادثة</span>
+    `;
+  }
+}
 
 function renderChatMessages(messages) {
   if (!waChatMessagesScroll) return;
@@ -609,14 +708,27 @@ function renderChatMessages(messages) {
   if (salesAccounts.size > 1) {
     const accNames = Array.from(salesAccounts).join(' و ');
     noticeHtml = `
-      <div style="background: rgba(0, 168, 132, 0.12); border: 1px solid rgba(0, 168, 132, 0.35); border-radius: 8px; padding: 10px 16px; margin: 12px auto; max-width: 85%; text-align: center; font-size: 0.83rem; color: #00a884; display: flex; align-items: center; justify-content: center; gap: 8px;">
+      <div id="wa-chat-shared-notice" style="background: rgba(0, 168, 132, 0.12); border: 1px solid rgba(0, 168, 132, 0.35); border-radius: 8px; padding: 10px 16px; margin: 12px auto; max-width: 85%; text-align: center; font-size: 0.83rem; color: #00a884; display: flex; align-items: center; justify-content: center; gap: 8px;">
         <span>ℹ️</span>
         <span>محادثة مشتركة: هذا العميل تواصل مع أكثر من موظف مبيعات (<strong>${escapeHtml(accNames)}</strong>).</span>
       </div>
     `;
   }
 
-  waChatMessagesScroll.innerHTML = noticeHtml + messages.map(msg => renderSingleMessageBubble(msg)).join('');
+  const loadMoreHtml = `
+    <div class="wa-load-more-container" id="wa-load-more-container">
+      ${currentChatHasMore ? `
+        <button class="wa-load-more-btn" id="wa-load-more-btn" onclick="loadOlderMessages()">
+          <span class="btn-icon">⬆️</span>
+          <span class="btn-text">تحميل رسائل أقدم</span>
+        </button>
+      ` : `
+        <span class="wa-chat-beginning-tag">🔒 بداية المحادثة</span>
+      `}
+    </div>
+  `;
+
+  waChatMessagesScroll.innerHTML = loadMoreHtml + noticeHtml + messages.map(msg => renderSingleMessageBubble(msg)).join('');
 }
 
 function renderSingleMessageBubble(msg) {

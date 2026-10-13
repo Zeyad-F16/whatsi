@@ -750,9 +750,13 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
   }));
 }
 
-async function getChatMessages({ chatId, accountId = null, limit = 200 } = {}) {
+async function getChatMessages({ chatId, accountId = null, limit = 30, beforeTimestamp = null } = {}) {
   await initialize();
-  if (!chatId) return [];
+  if (!chatId) {
+    const empty = [];
+    empty.hasMore = false;
+    return empty;
+  }
   const pool = db.getPool();
 
   const params = [chatId];
@@ -763,28 +767,50 @@ async function getChatMessages({ chatId, accountId = null, limit = 200 } = {}) {
     accFilter = ` AND (account_id = $${pIdx} OR account_name = $${pIdx})`;
   }
 
+  let beforeFilter = '';
+  if (beforeTimestamp) {
+    const parsedDate = new Date(beforeTimestamp);
+    if (!isNaN(parsedDate.getTime())) {
+      params.push(parsedDate);
+      const bIdx = params.length;
+      beforeFilter = ` AND timestamp < $${bIdx}`;
+    }
+  }
+
   const retentionSql = DATA_RETENTION_DAYS >= 36500 ? '' : `AND timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days'`;
 
+  const fetchLimit = Math.min(Math.max(Number(limit) || 30, 1), 100);
+  const queryLimit = fetchLimit + 1;
+
   const query = `
-    SELECT 
-      id, account_id, account_name, customer_name, customer_phone, chat_id, 
-      sender, text, NULL AS transcript, NULL AS tone_analysis, NULL AS duration_sec, 
-      'text' AS type, timestamp, display_time
-    FROM messages
-    WHERE chat_id = $1 ${accFilter} ${retentionSql}
-    UNION ALL
-    SELECT 
-      id, account_id, account_name, customer_name, customer_phone, chat_id, 
-      sender, NULL AS text, transcript, tone_analysis, duration_sec, 
-      'audio' AS type, timestamp, display_time
-    FROM audio_messages
-    WHERE chat_id = $1 ${accFilter} ${retentionSql}
-    ORDER BY timestamp ASC
-    LIMIT ${Number(limit) || 200};
+    WITH combined AS (
+      SELECT 
+        id, account_id, account_name, customer_name, customer_phone, chat_id, 
+        sender, text, NULL AS transcript, NULL AS tone_analysis, NULL AS duration_sec, 
+        'text' AS type, timestamp, display_time
+      FROM messages
+      WHERE chat_id = $1 ${accFilter} ${retentionSql} ${beforeFilter}
+      UNION ALL
+      SELECT 
+        id, account_id, account_name, customer_name, customer_phone, chat_id, 
+        sender, NULL AS text, transcript, tone_analysis, duration_sec, 
+        'audio' AS type, timestamp, display_time
+      FROM audio_messages
+      WHERE chat_id = $1 ${accFilter} ${retentionSql} ${beforeFilter}
+      ORDER BY timestamp DESC
+      LIMIT ${queryLimit}
+    )
+    SELECT * FROM combined
+    ORDER BY timestamp ASC;
   `;
 
   const res = await pool.query(query, params);
-  return res.rows.map(row => ({
+  const rows = res.rows;
+  const hasMore = rows.length > fetchLimit;
+  // بما أننا رتبنا تصاعدياً (ASC)، فإن أول عنصر هو الأقدم عند وجود عنصر إضافي
+  const finalRows = hasMore ? rows.slice(1) : rows;
+
+  const messages = finalRows.map(row => ({
     id: String(row.id),
     type: row.type,
     sender: row.sender,
@@ -798,6 +824,9 @@ async function getChatMessages({ chatId, accountId = null, limit = 200 } = {}) {
     customerName: row.customer_name || '',
     customerPhone: row.customer_phone ? db.formatPhoneNumber(row.customer_phone) : ''
   }));
+
+  messages.hasMore = hasMore;
+  return messages;
 }
 
 async function getLatestMessageIds() {
