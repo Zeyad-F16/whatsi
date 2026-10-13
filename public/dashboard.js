@@ -575,6 +575,7 @@ window.openChat = async function(chatId) {
 
 // ===== Chat Pagination State =====
 let currentChatOldestTimestamp = null;
+let currentChatOldestId = null;          // cursor ثنائي: (timestamp + id) لتجنب تكرار الـ timestamps
 let currentChatHasMore = false;
 let isLoadingOlderMessages = false;
 const CHAT_PAGE_SIZE = 30;
@@ -583,6 +584,7 @@ window.reloadCurrentChatMessages = async function() {
   if (!activeChatId || !waChatMessagesScroll) return;
 
   currentChatOldestTimestamp = null;
+  currentChatOldestId = null;
   currentChatHasMore = false;
   isLoadingOlderMessages = false;
 
@@ -596,7 +598,9 @@ window.reloadCurrentChatMessages = async function() {
     if (data.success && Array.isArray(data.messages)) {
       currentChatHasMore = Boolean(data.hasMore);
       if (data.messages.length > 0) {
+        // نحفظ أقدم رسالة مُعروضة كـ cursor للصفحة القادمة
         currentChatOldestTimestamp = data.messages[0].timestamp;
+        currentChatOldestId = data.messages[0].id;
       }
       renderChatMessages(data.messages);
       scrollToBottom();
@@ -621,13 +625,18 @@ window.loadOlderMessages = async function() {
 
   try {
     const accountId = selectedSalesAccountId || '';
-    const url = `/api/chat-messages?chatId=${encodeURIComponent(activeChatId)}&beforeTimestamp=${encodeURIComponent(currentChatOldestTimestamp)}&limit=${CHAT_PAGE_SIZE}${accountId ? `&accountId=${encodeURIComponent(accountId)}` : ''}`;
+    // إرسال cursor ثنائي (timestamp + id) لضمان عدم تجاوز رسائل لها نفس الـ timestamp
+    let cursorParams = `&beforeTimestamp=${encodeURIComponent(currentChatOldestTimestamp)}`;
+    if (currentChatOldestId) cursorParams += `&beforeId=${encodeURIComponent(currentChatOldestId)}`;
+    const url = `/api/chat-messages?chatId=${encodeURIComponent(activeChatId)}${cursorParams}&limit=${CHAT_PAGE_SIZE}${accountId ? `&accountId=${encodeURIComponent(accountId)}` : ''}`;
     const res = await fetch(url);
     const data = await res.json();
 
     if (data.success && Array.isArray(data.messages) && data.messages.length > 0) {
       const olderMessages = data.messages;
+      // تحديث الـ cursor إلى أقدم رسالة في الدفعة الجديدة
       currentChatOldestTimestamp = olderMessages[0].timestamp;
+      currentChatOldestId = olderMessages[0].id;
       currentChatHasMore = Boolean(data.hasMore);
 
       // حفظ موضع التمرير وارتفاع الحاوية قبل التعديل

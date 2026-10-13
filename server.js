@@ -180,9 +180,9 @@ app.get('/api/unread-counts', async (req, res) => {
 // 12. جلب رسائل وصوتيات محادثة معينة مرتبة زمنياً (مع دعم زر تحميل الرسائل الأقدم)
 app.get('/api/chat-messages', async (req, res) => {
   try {
-    const { chatId, accountId, limit, beforeTimestamp } = req.query;
+    const { chatId, accountId, limit, beforeTimestamp, beforeId } = req.query;
     if (!chatId) return res.status(400).json({ success: false, error: 'chatId مطلوب' });
-    const result = await reportService.getChatMessages({ chatId, accountId, limit, beforeTimestamp });
+    const result = await reportService.getChatMessages({ chatId, accountId, limit, beforeTimestamp, beforeId });
     const messages = Array.isArray(result) ? result : (result?.messages || []);
     const hasMore = Boolean(result.hasMore);
     res.json({ success: true, messages, hasMore });

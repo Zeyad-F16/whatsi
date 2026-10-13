@@ -750,7 +750,7 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
   }));
 }
 
-async function getChatMessages({ chatId, accountId = null, limit = 30, beforeTimestamp = null } = {}) {
+async function getChatMessages({ chatId, accountId = null, limit = 30, beforeTimestamp = null, beforeId = null } = {}) {
   await initialize();
   if (!chatId) {
     const empty = [];
@@ -767,13 +767,21 @@ async function getChatMessages({ chatId, accountId = null, limit = 30, beforeTim
     accFilter = ` AND (account_id = $${pIdx} OR account_name = $${pIdx})`;
   }
 
+  // cursor يعتمد على (timestamp, id) معاً لتجنب ضياع رسائل لها نفس الـ timestamp
   let beforeFilter = '';
   if (beforeTimestamp) {
     const parsedDate = new Date(beforeTimestamp);
     if (!isNaN(parsedDate.getTime())) {
       params.push(parsedDate);
-      const bIdx = params.length;
-      beforeFilter = ` AND timestamp < $${bIdx}`;
+      const tIdx = params.length;
+      if (beforeId) {
+        // استخدام (timestamp, id) cursor لتجنب ضياع رسائل متزامنة
+        params.push(String(beforeId));
+        const iIdx = params.length;
+        beforeFilter = ` AND (timestamp < $${tIdx} OR (timestamp = $${tIdx} AND id < $${iIdx}::bigint))`;
+      } else {
+        beforeFilter = ` AND timestamp < $${tIdx}`;
+      }
     }
   }
 
@@ -782,33 +790,35 @@ async function getChatMessages({ chatId, accountId = null, limit = 30, beforeTim
   const fetchLimit = Math.min(Math.max(Number(limit) || 30, 1), 100);
   const queryLimit = fetchLimit + 1;
 
+  // الاستعلام الصحيح: subquery مباشرة بدلاً من CTE لتجنب غموض ORDER BY داخل UNION ALL في PostgreSQL
   const query = `
-    WITH combined AS (
-      SELECT 
-        id, account_id, account_name, customer_name, customer_phone, chat_id, 
-        sender, text, NULL AS transcript, NULL AS tone_analysis, NULL AS duration_sec, 
+    SELECT * FROM (
+      SELECT
+        id, account_id, account_name, customer_name, customer_phone, chat_id,
+        sender, text, NULL::text AS transcript, NULL::text AS tone_analysis, NULL::int AS duration_sec,
         'text' AS type, timestamp, display_time
       FROM messages
       WHERE chat_id = $1 ${accFilter} ${retentionSql} ${beforeFilter}
       UNION ALL
-      SELECT 
-        id, account_id, account_name, customer_name, customer_phone, chat_id, 
-        sender, NULL AS text, transcript, tone_analysis, duration_sec, 
+      SELECT
+        id, account_id, account_name, customer_name, customer_phone, chat_id,
+        sender, NULL::text AS text, transcript, tone_analysis, duration_sec,
         'audio' AS type, timestamp, display_time
       FROM audio_messages
       WHERE chat_id = $1 ${accFilter} ${retentionSql} ${beforeFilter}
-      ORDER BY timestamp DESC
-      LIMIT ${queryLimit}
-    )
-    SELECT * FROM combined
-    ORDER BY timestamp ASC;
+    ) AS combined
+    ORDER BY timestamp DESC, id DESC
+    LIMIT ${queryLimit};
   `;
 
   const res = await pool.query(query, params);
+  // الصفوف جاءت DESC (الأحدث أولاً) بعدد queryLimit على الأكثر
   const rows = res.rows;
   const hasMore = rows.length > fetchLimit;
-  // بما أننا رتبنا تصاعدياً (ASC)، فإن أول عنصر هو الأقدم عند وجود عنصر إضافي
-  const finalRows = hasMore ? rows.slice(1) : rows;
+
+  // نحذف الصف الزائد (الأقدم في النتيجة = rows[rows.length-1]) الذي جلبناه فقط للكشف عن hasMore
+  // ثم نقلب الترتيب ليكون ASC (الأقدم أولاً) للعرض الصحيح في الواجهة
+  const finalRows = (hasMore ? rows.slice(0, fetchLimit) : rows).reverse();
 
   const messages = finalRows.map(row => ({
     id: String(row.id),
