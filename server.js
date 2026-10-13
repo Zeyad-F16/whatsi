@@ -17,7 +17,10 @@ const db = require('./database');
 
 const app = express();
 const PORT = Number(process.env.DASHBOARD_PORT || process.env.PORT || 3050);
-const HOST = process.env.DASHBOARD_HOST || '0.0.0.0';
+const HOST = process.env.DASHBOARD_HOST || process.env.HOST || '0.0.0.0';
+
+// دعم الـ Reverse Proxy (مثل Nginx عند تشغيل النطاق whatsi.khatwa-study.com)
+app.set('trust proxy', true);
 
 // معالجة JSON والطلبات
 app.use(express.json({ limit: '10mb' }));
