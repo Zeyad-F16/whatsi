@@ -1,12 +1,12 @@
-/** PostgreSQL data access for whatsi Z-ray. */
-const { Pool } = require('pg');
+/** PostgreSQL data access for whatsi Z-ray — powered by Prisma Client. */
+const { PrismaClient, Prisma } = require('@prisma/client');
 const crypto = require('crypto');
 const { formatCairoTime, getCairoDateString, getCairoDateRange } = require('./timezone');
 
-let pool;
+let prisma;
 const DATA_RETENTION_DAYS = Math.max(1, Number(process.env.DATA_RETENTION_DAYS || 36500));
 const DATA_RETENTION_MS = DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-const RETENTION_SQL = DATA_RETENTION_DAYS >= 36500 ? '1=1' : `timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days'`;
+const RETENTION_INTERVAL = `${DATA_RETENTION_DAYS} days`;
 let audioTimestampCutoff = new Date(Date.now() - 5 * 60 * 1000);
 
 function setAudioTimestampCutoff(timestampSeconds) {
@@ -20,37 +20,80 @@ function isWithinRetention(timestamp) {
   return Number.isFinite(time) && time >= Date.now() - DATA_RETENTION_MS;
 }
 
-function getPool() {
-  if (!pool) {
+function getPrisma() {
+  if (!prisma) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) throw new Error('DATABASE_URL غير مضبوط في ملف .env');
-    pool = new Pool({
-      connectionString,
-      max: Number(process.env.PG_POOL_SIZE || 10),
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000,
-      application_name: 'whatsi-desktop'
+    prisma = new PrismaClient({
+      datasources: { db: { url: connectionString } },
+      log: []
     });
-    pool.on('error', err => console.error('[Database] Unexpected PostgreSQL error:', err));
   }
-  return pool;
+  return prisma;
+}
+
+/** للتوافق مع الكود القديم في report-service الذي يستدعي db.getPool() مباشرةً */
+function getPool() {
+  // إرجاع كائن وهمي يحاكي pool.query عبر Prisma.$queryRaw
+  const p = getPrisma();
+  return {
+    query: async (sql, values = []) => {
+      const tagged = buildTaggedQuery(sql, values);
+      const rows = await p.$queryRaw(tagged);
+      return { rows, rowCount: Array.isArray(rows) ? rows.length : 0 };
+    }
+  };
+}
+
+/** تحويل استعلام pg نمط $1,$2 إلى Prisma.sql tagged template */
+function buildTaggedQuery(sql, values = []) {
+  if (!values || values.length === 0) {
+    return Prisma.sql([sql]);
+  }
+  // تقسيم SQL على placeholder وبناء tagged template ديناميكياً
+  const parts = sql.split(/\$\d+/);
+  const fragments = [Prisma.sql([parts[0]])];
+  for (let i = 0; i < values.length; i++) {
+    fragments.push(Prisma.sql`${values[i]}`);
+    if (parts[i + 1] !== undefined) fragments.push(Prisma.sql([parts[i + 1]]));
+  }
+  return Prisma.join(fragments, '');
 }
 
 async function initialize() {
-  const p = getPool();
-  await p.query('SELECT 1');
-  const { rows } = await p.query("SELECT to_regclass('public.messages') AS messages, to_regclass('public.audio_messages') AS audio_messages, to_regclass('public.audio_job_outbox') AS audio_job_outbox, to_regclass('public.daily_report_revisions') AS report_revisions, to_regclass('public.daily_report_cache') AS report_cache, to_regclass('public.gemini_usage') AS gemini_usage, to_regclass('public.customer_contact_history') AS contact_history, to_regclass('public.sales_daily_scores') AS sales_daily_scores");
-  if (!rows[0].messages || !rows[0].audio_messages || !rows[0].audio_job_outbox || !rows[0].report_revisions || !rows[0].report_cache || !rows[0].gemini_usage || !rows[0].contact_history || !rows[0].sales_daily_scores) {
+  const p = getPrisma();
+  await p.$queryRaw(Prisma.sql`SELECT 1`);
+
+  // التحقق من وجود الجداول الأساسية المنشأة بواسطة Prisma migrate
+  const tableCheck = await p.$queryRaw(Prisma.sql`
+    SELECT
+      to_regclass('public.messages') AS messages,
+      to_regclass('public.audio_messages') AS audio_messages,
+      to_regclass('public.audio_job_outbox') AS audio_job_outbox,
+      to_regclass('public.daily_report_revisions') AS report_revisions,
+      to_regclass('public.daily_report_cache') AS report_cache,
+      to_regclass('public.gemini_usage') AS gemini_usage,
+      to_regclass('public.customer_contact_history') AS contact_history,
+      to_regclass('public.sales_daily_scores') AS sales_daily_scores
+  `);
+  const tc = tableCheck[0];
+  if (!tc.messages || !tc.audio_messages || !tc.audio_job_outbox ||
+      !tc.report_revisions || !tc.report_cache || !tc.gemini_usage ||
+      !tc.contact_history || !tc.sales_daily_scores) {
     throw new Error('مخطط PostgreSQL غير مطبق. نفّذ الأمر npm run db:migrate قبل تشغيل التطبيق.');
   }
-  await p.query(`
+
+  // إنشاء الجداول الإضافية غير المُدارة بـ Prisma migrate
+  await p.$executeRaw(Prisma.sql`
     CREATE TABLE IF NOT EXISTS sales_chat_seen (
       account_id TEXT NOT NULL,
       chat_id TEXT NOT NULL,
       seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       unread_count INT NOT NULL DEFAULT 0,
       PRIMARY KEY (account_id, chat_id)
-    );
+    )
+  `);
+  await p.$executeRaw(Prisma.sql`
     CREATE TABLE IF NOT EXISTS customer_profiles (
       chat_id TEXT NOT NULL PRIMARY KEY,
       customer_phone TEXT,
@@ -62,12 +105,13 @@ async function initialize() {
       brief TEXT DEFAULT '',
       status TEXT DEFAULT 'active',
       updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_customer_profiles_phone ON customer_profiles (customer_phone);
-    CREATE INDEX IF NOT EXISTS idx_customer_profiles_updated_at ON customer_profiles (updated_at);
+    )
   `);
+  await p.$executeRaw(Prisma.sql`CREATE INDEX IF NOT EXISTS idx_customer_profiles_phone ON customer_profiles (customer_phone)`);
+  await p.$executeRaw(Prisma.sql`CREATE INDEX IF NOT EXISTS idx_customer_profiles_updated_at ON customer_profiles (updated_at)`);
+
   await backfillCustomerContactHistory();
-  console.log('[Database] PostgreSQL connected; Prisma migration schema is ready.');
+  console.log('[Database] PostgreSQL connected via Prisma; schema is ready.');
 }
 
 const ALL_ACCOUNTS_KEY = '__all__';
@@ -81,7 +125,8 @@ function reportRevisionKey(accountId, period) {
   return `${accountId || ALL_ACCOUNTS_KEY}::${normalizeReportPeriod(period)}`;
 }
 
-async function bumpDailyReportRevision(client, accountId, date) {
+/** تحديث أرقام إصدارات تقارير اليوم داخل transaction */
+async function bumpDailyReportRevision(tx, accountId, date) {
   const revisions = new Set([
     [reportRevisionKey(accountId, 'today'), date],
     [reportRevisionKey(null, 'today'), date],
@@ -90,66 +135,163 @@ async function bumpDailyReportRevision(client, accountId, date) {
     [reportRevisionKey(accountId, 'last7days'), getLocalDateString()],
     [reportRevisionKey(null, 'last7days'), getLocalDateString()]
   ].map(([key, revisionDate]) => `${key}\u0000${revisionDate}`));
+
   for (const revision of revisions) {
     const [key, revisionDate] = revision.split('\u0000');
-    await client.query(
-      'INSERT INTO daily_report_revisions (account_key,report_date,version,updated_at) VALUES ($1,$2,1,NOW()) ' +
-      'ON CONFLICT (account_key,report_date) DO UPDATE SET version=daily_report_revisions.version+1,updated_at=NOW()',
-      [key, revisionDate]);
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO daily_report_revisions (account_key, report_date, version, updated_at)
+      VALUES (${key}, ${revisionDate}, 1, NOW())
+      ON CONFLICT (account_key, report_date)
+      DO UPDATE SET version = daily_report_revisions.version + 1, updated_at = NOW()
+    `);
   }
 }
 
 async function getDailyReportRevision(accountId, date, period = 'today') {
   const key = reportRevisionKey(accountId, period);
   const globalKey = reportRevisionKey(null, period);
-  const result = await getPool().query(
-    'SELECT COALESCE((SELECT version FROM daily_report_revisions WHERE account_key=$1 AND report_date=$2),0) AS scoped, ' +
-    'COALESCE((SELECT version FROM daily_report_revisions WHERE account_key=$3 AND report_date=$2),0) AS global',
-    [key, date, globalKey]);
-  return `${result.rows[0].scoped}:${result.rows[0].global}`;
+  const p = getPrisma();
+  const result = await p.$queryRaw(Prisma.sql`
+    SELECT
+      COALESCE((SELECT version FROM daily_report_revisions WHERE account_key = ${key} AND report_date = ${date}), 0) AS scoped,
+      COALESCE((SELECT version FROM daily_report_revisions WHERE account_key = ${globalKey} AND report_date = ${date}), 0) AS global
+  `);
+  return `${result[0].scoped}:${result[0].global}`;
 }
 
 async function getCachedDailyReport(accountId, date, sourceVersion, period = 'today', allowSourceChanges = false, allowPromptChanges = false) {
+  const p = getPrisma();
   const isRolling = ['last48h', 'last7days'].includes(normalizeReportPeriod(period));
-  const validity = isRolling
-    ? " AND NULLIF(payload->>'cacheValidUntil','') IS NOT NULL AND (payload->>'cacheValidUntil')::timestamptz > NOW()"
-    : '';
-  const params = [reportRevisionKey(accountId, period), date];
-  let filters = '';
-  if (!allowSourceChanges) { params.push(sourceVersion); filters += ` AND source_version=$${params.length}`; }
-  if (!allowPromptChanges) { params.push(REPORT_PROMPT_VERSION); filters += ` AND prompt_version=$${params.length}`; }
-  const result = await getPool().query(
-    `SELECT payload,source_version,prompt_version FROM daily_report_cache WHERE account_key=$1 AND report_date=$2${filters} AND generated_at >= NOW()-INTERVAL '${DATA_RETENTION_DAYS} days'${validity}`,
-    params);
-  return result.rows[0] ? { ...result.rows[0].payload, _cacheSourceVersion: result.rows[0].source_version,
-    _cachePromptVersion: result.rows[0].prompt_version } : null;
+  const key = reportRevisionKey(accountId, period);
+
+  let row;
+  if (!allowSourceChanges && !allowPromptChanges) {
+    if (isRolling) {
+      [row] = await p.$queryRaw(Prisma.sql`
+        SELECT payload, source_version, prompt_version FROM daily_report_cache
+        WHERE account_key = ${key} AND report_date = ${date}
+          AND source_version = ${sourceVersion} AND prompt_version = ${REPORT_PROMPT_VERSION}
+          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
+          AND NULLIF(payload->>'cacheValidUntil','') IS NOT NULL
+          AND (payload->>'cacheValidUntil')::timestamptz > NOW()
+      `);
+    } else {
+      [row] = await p.$queryRaw(Prisma.sql`
+        SELECT payload, source_version, prompt_version FROM daily_report_cache
+        WHERE account_key = ${key} AND report_date = ${date}
+          AND source_version = ${sourceVersion} AND prompt_version = ${REPORT_PROMPT_VERSION}
+          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
+      `);
+    }
+  } else if (!allowSourceChanges) {
+    if (isRolling) {
+      [row] = await p.$queryRaw(Prisma.sql`
+        SELECT payload, source_version, prompt_version FROM daily_report_cache
+        WHERE account_key = ${key} AND report_date = ${date}
+          AND source_version = ${sourceVersion}
+          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
+          AND NULLIF(payload->>'cacheValidUntil','') IS NOT NULL
+          AND (payload->>'cacheValidUntil')::timestamptz > NOW()
+      `);
+    } else {
+      [row] = await p.$queryRaw(Prisma.sql`
+        SELECT payload, source_version, prompt_version FROM daily_report_cache
+        WHERE account_key = ${key} AND report_date = ${date}
+          AND source_version = ${sourceVersion}
+          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
+      `);
+    }
+  } else if (!allowPromptChanges) {
+    if (isRolling) {
+      [row] = await p.$queryRaw(Prisma.sql`
+        SELECT payload, source_version, prompt_version FROM daily_report_cache
+        WHERE account_key = ${key} AND report_date = ${date}
+          AND prompt_version = ${REPORT_PROMPT_VERSION}
+          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
+          AND NULLIF(payload->>'cacheValidUntil','') IS NOT NULL
+          AND (payload->>'cacheValidUntil')::timestamptz > NOW()
+      `);
+    } else {
+      [row] = await p.$queryRaw(Prisma.sql`
+        SELECT payload, source_version, prompt_version FROM daily_report_cache
+        WHERE account_key = ${key} AND report_date = ${date}
+          AND prompt_version = ${REPORT_PROMPT_VERSION}
+          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
+      `);
+    }
+  } else {
+    if (isRolling) {
+      [row] = await p.$queryRaw(Prisma.sql`
+        SELECT payload, source_version, prompt_version FROM daily_report_cache
+        WHERE account_key = ${key} AND report_date = ${date}
+          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
+          AND NULLIF(payload->>'cacheValidUntil','') IS NOT NULL
+          AND (payload->>'cacheValidUntil')::timestamptz > NOW()
+      `);
+    } else {
+      [row] = await p.$queryRaw(Prisma.sql`
+        SELECT payload, source_version, prompt_version FROM daily_report_cache
+        WHERE account_key = ${key} AND report_date = ${date}
+          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
+      `);
+    }
+  }
+  if (!row) return null;
+  return { ...row.payload, _cacheSourceVersion: row.source_version, _cachePromptVersion: row.prompt_version };
 }
 
 async function storeDailyReportCache(accountId, date, sourceVersion, payload, period = 'today') {
+  const p = getPrisma();
   const key = reportRevisionKey(accountId, period);
   const globalKey = reportRevisionKey(null, period);
-  await getPool().query(
-    'WITH args AS (SELECT $1::text AS account_key,$2::varchar(10) AS report_date,$3::varchar(80) AS source_version,' +
-    '$4::varchar(80) AS prompt_version,$5::jsonb AS payload,$6::text AS scoped_key,$7::text AS global_key) ' +
-    'INSERT INTO daily_report_cache (account_key,report_date,source_version,prompt_version,payload,generated_at) ' +
-    'SELECT args.account_key,args.report_date,args.source_version,args.prompt_version,args.payload,NOW() FROM args ' +
-    'WHERE args.source_version = COALESCE((SELECT version FROM daily_report_revisions WHERE account_key=args.scoped_key AND report_date=args.report_date),0)::text ' +
-    '|| \':\' || COALESCE((SELECT version FROM daily_report_revisions WHERE account_key=args.global_key AND report_date=args.report_date),0)::text ' +
-    'ON CONFLICT (account_key,report_date) DO UPDATE SET source_version=EXCLUDED.source_version,prompt_version=EXCLUDED.prompt_version,payload=EXCLUDED.payload,generated_at=EXCLUDED.generated_at',
-    [key, date, sourceVersion, REPORT_PROMPT_VERSION, JSON.stringify(payload), key, globalKey]);
+  // حفظ الـ cache فقط إذا لم يتغيّر الإصدار منذ بدء التوليد
+  await p.$executeRaw(Prisma.sql`
+    WITH args AS (
+      SELECT
+        ${key}::text AS account_key,
+        ${date}::varchar(10) AS report_date,
+        ${sourceVersion}::varchar(80) AS source_version,
+        ${REPORT_PROMPT_VERSION}::varchar(80) AS prompt_version,
+        ${JSON.stringify(payload)}::jsonb AS payload,
+        ${key}::text AS scoped_key,
+        ${globalKey}::text AS global_key
+    )
+    INSERT INTO daily_report_cache (account_key, report_date, source_version, prompt_version, payload, generated_at)
+    SELECT args.account_key, args.report_date, args.source_version, args.prompt_version, args.payload, NOW() FROM args
+    WHERE args.source_version =
+      COALESCE((SELECT version FROM daily_report_revisions WHERE account_key = args.scoped_key AND report_date = args.report_date), 0)::text
+      || ':' ||
+      COALESCE((SELECT version FROM daily_report_revisions WHERE account_key = args.global_key AND report_date = args.report_date), 0)::text
+    ON CONFLICT (account_key, report_date)
+    DO UPDATE SET
+      source_version = EXCLUDED.source_version,
+      prompt_version = EXCLUDED.prompt_version,
+      payload = EXCLUDED.payload,
+      generated_at = EXCLUDED.generated_at
+  `);
 }
 
 async function recordGeminiUsage(usage) {
-  await getPool().query(
-    'INSERT INTO gemini_usage (call_type,account_id,model,status,input_tokens,input_text_tokens,input_audio_tokens,cached_input_tokens,output_tokens,thinking_tokens,estimated_cost_usd,error_code) ' +
-    'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
-    [usage.callType, usage.accountId || null, usage.model, usage.status, usage.inputTokens, usage.inputTextTokens,
-      usage.inputAudioTokens, usage.cachedInputTokens, usage.outputTokens, usage.thinkingTokens,
-      usage.estimatedCostUsd, usage.errorCode || null]);
+  await getPrisma().geminiUsage.create({
+    data: {
+      callType: usage.callType,
+      accountId: usage.accountId || null,
+      model: usage.model,
+      status: usage.status,
+      inputTokens: usage.inputTokens ?? null,
+      inputTextTokens: usage.inputTextTokens ?? null,
+      inputAudioTokens: usage.inputAudioTokens ?? null,
+      cachedInputTokens: usage.cachedInputTokens ?? null,
+      outputTokens: usage.outputTokens ?? null,
+      thinkingTokens: usage.thinkingTokens ?? null,
+      estimatedCostUsd: usage.estimatedCostUsd ?? null,
+      errorCode: usage.errorCode || null
+    }
+  });
 }
 
 async function close() {
-  if (pool) { const p = pool; pool = null; await p.end(); }
+  if (prisma) { const p = prisma; prisma = null; await p.$disconnect(); }
 }
 
 function getReportRange(period = 'today', date = null) {
@@ -172,24 +314,30 @@ function getReportRange(period = 'today', date = null) {
 
 function getLocalDateString(d = new Date()) { return getCairoDateString(d); }
 
+// ─── دوال SQL مساعدة للاستعلامات الخام ───────────────────────────────────────
 function customerKeySql(alias) {
-  // Canonicalize Egyptian local/international forms so one person is not
-  // counted twice because the UI supplied a different phone format.
-  const digits = "regexp_replace(COALESCE(" + alias + ".customer_phone,''), '[^0-9]', '', 'g')";
-  return "NULLIF(CASE WHEN " + digits + " ~ '^0020[1][0125][0-9]{8}$' THEN substring(" + digits + " from 3) " +
-    "WHEN " + digits + " ~ '^01[0125][0-9]{8}$' THEN '20' || substring(" + digits + " from 2) " +
-    "WHEN " + digits + " ~ '^1[0125][0-9]{8}$' THEN '20' || " + digits + " " +
-    "ELSE " + digits + " END, '')";
+  const digits = `regexp_replace(COALESCE(${alias}.customer_phone,''), '[^0-9]', '', 'g')`;
+  return `NULLIF(CASE WHEN ${digits} ~ '^0020[1][0125][0-9]{8}$' THEN substring(${digits} from 3) ` +
+    `WHEN ${digits} ~ '^01[0125][0-9]{8}$' THEN '20' || substring(${digits} from 2) ` +
+    `WHEN ${digits} ~ '^1[0125][0-9]{8}$' THEN '20' || ${digits} ` +
+    `ELSE ${digits} END, '')`;
 }
 
 function chatKeySql(alias) {
-  return "NULLIF(regexp_replace(BTRIM(COALESCE(" + alias + ".chat_id,'')), '@(c\\.us|s\\.whatsapp\\.net|lid)$', '', 'i'), '')";
+  return `NULLIF(regexp_replace(BTRIM(COALESCE(${alias}.chat_id,'')), '@(c\\.us|s\\.whatsapp\\.net|lid)$', '', 'i'), '')`;
 }
 
 function isDirectChatSql(alias) {
-  return "(" + alias + ".chat_id IS NULL OR (" + alias + ".chat_id NOT LIKE '%@g.us' AND " + alias + ".chat_id NOT LIKE '%@broadcast' AND " + alias + ".chat_id NOT LIKE '%@newsletter'))";
+  return `(${alias}.chat_id IS NULL OR (${alias}.chat_id NOT LIKE '%@g.us' AND ${alias}.chat_id NOT LIKE '%@broadcast' AND ${alias}.chat_id NOT LIKE '%@newsletter'))`;
 }
 
+function retentionSql(alias = null) {
+  if (DATA_RETENTION_DAYS >= 36500) return '1=1';
+  const col = alias ? `${alias}.timestamp` : 'timestamp';
+  return `${col} >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days'`;
+}
+
+// ─── إدارة جهات الاتصال ──────────────────────────────────────────────────────
 function contactHash(customerPhone, chatId) {
   const phone = normalizePhoneDigits(customerPhone);
   const chat = String(chatId || '').trim().replace(/@(c\.us|s\.whatsapp\.net|lid)$/i, '');
@@ -208,7 +356,7 @@ function normalizePhoneDigits(value) {
   return digits;
 }
 
-async function registerCustomerContact(client, data, baseline = false) {
+async function registerCustomerContact(tx, data, baseline = false) {
   const phoneHash = contactHash(data.customerPhone, null);
   const chatHash = contactHash(null, data.chatId);
   const hashes = [...new Set([phoneHash, chatHash].filter(Boolean))];
@@ -216,234 +364,386 @@ async function registerCustomerContact(client, data, baseline = false) {
   const timestamp = data.timestamp || new Date().toISOString();
   const accountId = data.accountId || 'unknown';
   for (const hash of hashes) {
-    await client.query(
-      'INSERT INTO customer_contact_history (contact_hash,first_contact_at,first_account_id,baseline_contact,updated_at) VALUES ($1,$2,$3,$4,NOW()) ' +
-      'ON CONFLICT (contact_hash) DO UPDATE SET first_account_id=CASE WHEN EXCLUDED.first_contact_at < customer_contact_history.first_contact_at THEN EXCLUDED.first_account_id ELSE customer_contact_history.first_account_id END,' +
-      'first_contact_at=LEAST(customer_contact_history.first_contact_at,EXCLUDED.first_contact_at),baseline_contact=customer_contact_history.baseline_contact OR EXCLUDED.baseline_contact,updated_at=NOW()',
-      [hash, timestamp, accountId, baseline]);
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO customer_contact_history (contact_hash, first_contact_at, first_account_id, baseline_contact, updated_at)
+      VALUES (${hash}, ${new Date(timestamp)}, ${accountId}, ${baseline}, NOW())
+      ON CONFLICT (contact_hash) DO UPDATE SET
+        first_account_id = CASE
+          WHEN EXCLUDED.first_contact_at < customer_contact_history.first_contact_at THEN EXCLUDED.first_account_id
+          ELSE customer_contact_history.first_account_id
+        END,
+        first_contact_at = LEAST(customer_contact_history.first_contact_at, EXCLUDED.first_contact_at),
+        baseline_contact = customer_contact_history.baseline_contact OR EXCLUDED.baseline_contact,
+        updated_at = NOW()
+    `);
   }
   return phoneHash || chatHash;
 }
 
 async function backfillCustomerContactHistory() {
-  const exists = await getPool().query('SELECT EXISTS(SELECT 1 FROM customer_contact_history) AS ready');
-  if (exists.rows[0].ready) return;
-  const rows = await getPool().query(
-    "SELECT account_id,customer_phone,chat_id,timestamp FROM messages WHERE " + RETENTION_SQL + " " +
-    "UNION ALL SELECT account_id,customer_phone,chat_id,timestamp FROM audio_messages WHERE " + RETENTION_SQL + " ORDER BY timestamp");
-  if (!rows.rowCount) return;
-  const client = await getPool().connect();
-  try {
-    await client.query('BEGIN');
-    for (const row of rows.rows) await registerCustomerContact(client, row, true);
-    await client.query('COMMIT');
-  } catch (err) { await client.query('ROLLBACK'); throw err; }
-  finally { client.release(); }
+  const p = getPrisma();
+  const [existing] = await p.$queryRaw(Prisma.sql`SELECT EXISTS(SELECT 1 FROM customer_contact_history) AS ready`);
+  if (existing.ready) return;
+
+  const rows = await p.$queryRaw(Prisma.sql`
+    SELECT account_id, customer_phone, chat_id, timestamp FROM messages WHERE ${Prisma.raw(retentionSql())}
+    UNION ALL
+    SELECT account_id, customer_phone, chat_id, timestamp FROM audio_messages WHERE ${Prisma.raw(retentionSql())}
+    ORDER BY timestamp
+  `);
+  if (!rows.length) return;
+
+  await p.$transaction(async tx => {
+    for (const row of rows) await registerCustomerContact(tx, row, true);
+  });
 }
 
+// ─── حفظ الرسائل ─────────────────────────────────────────────────────────────
 async function saveMessage(data) {
   if (!isWithinRetention(data.timestamp || new Date())) return null;
-  const values = [data.accountId || 'unknown', data.accountName || 'Unknown Account', data.customerName || 'Unknown Customer',
-    data.customerPhone || null, data.chatId || null, data.messageId || null,
-    ['sales', 'customer'].includes(data.sender) ? data.sender : 'customer', data.text || '',
-      data.timestamp || new Date().toISOString(), data.displayTime || formatCairoTime()];
-  const client = await getPool().connect();
-  try {
-    await client.query('BEGIN');
-    if (String(values[5] || '').startsWith('fallback:')) {
-      const legacy = await client.query(
-        'SELECT id FROM messages WHERE account_id=$1 AND message_id IS NULL AND chat_id IS NOT DISTINCT FROM $2 ' +
-        'AND timestamp=$3::timestamptz AND sender=$4 AND text=$5 LIMIT 1',
-        [values[0], values[4], values[8], values[6], values[7]]);
-      if (legacy.rows[0]) {
-        await client.query('COMMIT');
-        return legacy.rows[0].id;
-      }
+  const p = getPrisma();
+
+  const accountId = data.accountId || 'unknown';
+  const accountName = data.accountName || 'Unknown Account';
+  const customerName = data.customerName || 'Unknown Customer';
+  const customerPhone = data.customerPhone || null;
+  const chatId = data.chatId || null;
+  const messageId = data.messageId || null;
+  const sender = ['sales', 'customer'].includes(data.sender) ? data.sender : 'customer';
+  const text = data.text || '';
+  const timestamp = new Date(data.timestamp || new Date().toISOString());
+  const displayTime = data.displayTime || formatCairoTime();
+
+  return await p.$transaction(async tx => {
+    // تعامل مع fallback message_id
+    if (String(messageId || '').startsWith('fallback:')) {
+      const [legacy] = await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM messages
+        WHERE account_id = ${accountId} AND message_id IS NULL
+          AND chat_id IS NOT DISTINCT FROM ${chatId}
+          AND timestamp = ${timestamp}::timestamptz
+          AND sender = ${sender} AND text = ${text}
+        LIMIT 1
+      `);
+      if (legacy) return legacy.id;
     }
-    const result = await client.query(
-      "INSERT INTO messages (account_id,account_name,customer_name,customer_phone,chat_id,message_id,sender,text,timestamp,display_time) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (account_id,message_id) DO NOTHING RETURNING id",
-      values);
-    if (result.rows[0]) {
-      await registerCustomerContact(client, { accountId: values[0], customerPhone: values[3], chatId: values[4], timestamp: values[8] });
-      await bumpDailyReportRevision(client, values[0], getLocalDateString(new Date(values[8])));
-      if (values[6] === 'sales' && values[4]) {
-        await client.query(
-          "INSERT INTO sales_chat_seen (account_id, chat_id, seen_at, unread_count) VALUES ($1, $2, $3, 0) ON CONFLICT (account_id, chat_id) DO UPDATE SET seen_at=EXCLUDED.seen_at, unread_count=0",
-          [values[0], values[4], values[8]]
-        );
+
+    const [inserted] = await tx.$queryRaw(Prisma.sql`
+      INSERT INTO messages (account_id, account_name, customer_name, customer_phone, chat_id, message_id, sender, text, timestamp, display_time)
+      VALUES (${accountId}, ${accountName}, ${customerName}, ${customerPhone}, ${chatId}, ${messageId}, ${sender}, ${text}, ${timestamp}, ${displayTime})
+      ON CONFLICT (account_id, message_id) DO NOTHING
+      RETURNING id
+    `);
+
+    if (inserted) {
+      await registerCustomerContact(tx, { accountId, customerPhone, chatId, timestamp: timestamp.toISOString() });
+      await bumpDailyReportRevision(tx, accountId, getLocalDateString(timestamp));
+      if (sender === 'sales' && chatId) {
+        await tx.$executeRaw(Prisma.sql`
+          INSERT INTO sales_chat_seen (account_id, chat_id, seen_at, unread_count)
+          VALUES (${accountId}, ${chatId}, ${timestamp}, 0)
+          ON CONFLICT (account_id, chat_id) DO UPDATE SET seen_at = EXCLUDED.seen_at, unread_count = 0
+        `);
       }
+      return inserted.id;
     }
-    await client.query('COMMIT');
-    return result.rows[0] ? result.rows[0].id : null;
-  } catch (err) { await client.query('ROLLBACK'); throw err; }
-  finally { client.release(); }
+    return null;
+  });
 }
 
 async function updateCustomerPhoneForChat(accountId, chatId, customerPhone) {
   if (!accountId || !chatId || !customerPhone) return 0;
-  const values = [customerPhone, accountId, chatId];
-  const client = await getPool().connect();
-  try {
-    await client.query('BEGIN');
-    const messages = await client.query(
-      "UPDATE messages SET customer_phone=$1 WHERE account_id=$2 AND chat_id=$3 AND " + RETENTION_SQL + " AND (customer_phone IS NULL OR customer_phone='') RETURNING timestamp,chat_id",
-      values);
-    const audio = await client.query(
-      "UPDATE audio_messages SET customer_phone=$1 WHERE account_id=$2 AND chat_id=$3 AND " + RETENTION_SQL + " AND (customer_phone IS NULL OR customer_phone='') RETURNING timestamp,chat_id",
-      values);
-    const updatedRows = [...messages.rows, ...audio.rows];
+  const p = getPrisma();
+
+  return await p.$transaction(async tx => {
+    const retSQL = retentionSql();
+    const messagesUpdated = await tx.$queryRaw(Prisma.sql`
+      UPDATE messages SET customer_phone = ${customerPhone}
+      WHERE account_id = ${accountId} AND chat_id = ${chatId}
+        AND ${Prisma.raw(retSQL)}
+        AND (customer_phone IS NULL OR customer_phone = '')
+      RETURNING timestamp, chat_id
+    `);
+    const audioUpdated = await tx.$queryRaw(Prisma.sql`
+      UPDATE audio_messages SET customer_phone = ${customerPhone}
+      WHERE account_id = ${accountId} AND chat_id = ${chatId}
+        AND ${Prisma.raw(retSQL)}
+        AND (customer_phone IS NULL OR customer_phone = '')
+      RETURNING timestamp, chat_id
+    `);
+    const updatedRows = [...messagesUpdated, ...audioUpdated];
     if (updatedRows.length) {
       const first = updatedRows.reduce((a, b) => new Date(a.timestamp) <= new Date(b.timestamp) ? a : b);
-      await registerCustomerContact(client, { accountId, customerPhone, chatId: first.chat_id, timestamp: first.timestamp });
+      await registerCustomerContact(tx, { accountId, customerPhone, chatId: first.chat_id, timestamp: first.timestamp });
     }
     const dates = new Set(updatedRows.map(row => getLocalDateString(new Date(row.timestamp))));
-    for (const date of dates) await bumpDailyReportRevision(client, accountId, date);
-    await client.query('COMMIT');
-    return messages.rowCount + audio.rowCount;
-  } catch (err) { await client.query('ROLLBACK'); throw err; }
-  finally { client.release(); }
+    for (const date of dates) await bumpDailyReportRevision(tx, accountId, date);
+    return messagesUpdated.length + audioUpdated.length;
+  });
 }
 
-// Save audio metadata and a durable outbox event in one PostgreSQL transaction.
+// ─── رسائل صوتية ─────────────────────────────────────────────────────────────
 async function captureAudio(data) {
   if (!isWithinRetention(data.timestamp || new Date())) return { id: null, inserted: false, ignored: true };
   const allowTranscription = Date.parse(data.timestamp || new Date()) >= audioTimestampCutoff.getTime();
-  const client = await getPool().connect();
-  try {
-    await client.query('BEGIN');
-    const values = [data.accountId || 'unknown', data.accountName || 'Unknown', data.customerName || 'Unknown',
-      data.customerPhone || null, data.chatId || null, data.messageId || null,
-      ['sales', 'customer'].includes(data.sender) ? data.sender : 'customer', data.durationSec || null,
-      data.timestamp || new Date().toISOString(), data.displayTime || ''];
-    if (String(values[5] || '').startsWith('fallback:')) {
-      const legacy = await client.query(
-        'SELECT id FROM audio_messages WHERE account_id=$1 AND message_id IS NULL AND chat_id IS NOT DISTINCT FROM $2 ' +
-        'AND timestamp=$3::timestamptz AND sender=$4 AND duration_sec IS NOT DISTINCT FROM $5 LIMIT 1',
-        [values[0], values[4], values[8], values[6], values[7]]);
-      if (legacy.rows[0]) {
-        await client.query('COMMIT');
-        return { id: String(legacy.rows[0].id), inserted: false, recoveredLegacy: true };
-      }
+  const p = getPrisma();
+
+  return await p.$transaction(async tx => {
+    const accountId = data.accountId || 'unknown';
+    const accountName = data.accountName || 'Unknown';
+    const customerName = data.customerName || 'Unknown';
+    const customerPhone = data.customerPhone || null;
+    const chatId = data.chatId || null;
+    const messageId = data.messageId || null;
+    const sender = ['sales', 'customer'].includes(data.sender) ? data.sender : 'customer';
+    const durationSec = data.durationSec || null;
+    const timestamp = new Date(data.timestamp || new Date().toISOString());
+    const displayTime = data.displayTime || '';
+
+    if (String(messageId || '').startsWith('fallback:')) {
+      const [legacy] = await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM audio_messages
+        WHERE account_id = ${accountId} AND message_id IS NULL
+          AND chat_id IS NOT DISTINCT FROM ${chatId}
+          AND timestamp = ${timestamp}::timestamptz
+          AND sender = ${sender}
+          AND duration_sec IS NOT DISTINCT FROM ${durationSec}
+        LIMIT 1
+      `);
+      if (legacy) return { id: String(legacy.id), inserted: false, recoveredLegacy: true };
     }
-    let inserted = await client.query(
-      "INSERT INTO audio_messages (account_id,account_name,customer_name,customer_phone,chat_id,message_id,sender,duration_sec,timestamp,display_time) " +
-      "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (account_id,message_id) DO NOTHING RETURNING id",
-      values);
-    let audioId = inserted.rows[0] && inserted.rows[0].id;
-    if (!audioId && data.messageId) {
-      const existing = await client.query('SELECT id FROM audio_messages WHERE account_id=$1 AND message_id=$2 LIMIT 1', [values[0], data.messageId]);
-      audioId = existing.rows[0] && existing.rows[0].id;
+
+    const [inserted] = await tx.$queryRaw(Prisma.sql`
+      INSERT INTO audio_messages (account_id, account_name, customer_name, customer_phone, chat_id, message_id, sender, duration_sec, timestamp, display_time)
+      VALUES (${accountId}, ${accountName}, ${customerName}, ${customerPhone}, ${chatId}, ${messageId}, ${sender}, ${durationSec}, ${timestamp}, ${displayTime})
+      ON CONFLICT (account_id, message_id) DO NOTHING
+      RETURNING id
+    `);
+
+    let audioId = inserted && inserted.id;
+    if (!audioId && messageId) {
+      const [existing] = await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM audio_messages WHERE account_id = ${accountId} AND message_id = ${messageId} LIMIT 1
+      `);
+      audioId = existing && existing.id;
     }
     if (!audioId) throw new Error('تعذر حفظ سجل الرسالة الصوتية');
-    if (inserted.rows[0]) {
-      await registerCustomerContact(client, { accountId: values[0], customerPhone: values[3], chatId: values[4], timestamp: values[8] });
-      await bumpDailyReportRevision(client, values[0], getLocalDateString(new Date(values[8])));
+
+    if (inserted) {
+      await registerCustomerContact(tx, { accountId, customerPhone, chatId, timestamp: timestamp.toISOString() });
+      await bumpDailyReportRevision(tx, accountId, getLocalDateString(timestamp));
     }
+
     if (allowTranscription && ((data.mediaKey && (data.directPath || data.mediaUrl)) || (data.buffer && data.buffer.length > 100))) {
       const jobId = 'audio-' + String(audioId);
-      await client.query(
-        'INSERT INTO audio_job_outbox (job_id,audio_id,payload) VALUES ($1,$2,$3::jsonb) ON CONFLICT (job_id) DO NOTHING',
-        [jobId, audioId, JSON.stringify({
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO audio_job_outbox (job_id, audio_id, payload)
+        VALUES (${jobId}, ${audioId}, ${JSON.stringify({
           audioId: String(audioId), mediaKey: data.mediaKey, directPath: data.directPath || null,
           mediaUrl: data.mediaUrl || null, encFilehash: data.encFilehash || null,
           fileLength: data.fileLength || 0, mimetype: data.mimetype || '', buffer: data.buffer || null,
-          sender: values[6], accountId: values[0], accountName: values[1], customerName: values[2]
-        })]);
+          sender, accountId, accountName, customerName
+        })}::jsonb)
+        ON CONFLICT (job_id) DO NOTHING
+      `);
     }
-    await client.query('COMMIT');
-    return { id: String(audioId), inserted: Boolean(inserted.rows[0]) };
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally { client.release(); }
+
+    return { id: String(audioId), inserted: Boolean(inserted) };
+  });
 }
 
 async function pendingAudioJobs(limit = 100) {
-  const r = await getPool().query(
-    "SELECT o.job_id, o.payload FROM audio_job_outbox o JOIN audio_messages a ON a.id=o.audio_id WHERE o.published_at IS NULL AND a.timestamp >= $1 AND a.timestamp >= NOW() - INTERVAL '" + DATA_RETENTION_DAYS + " days' ORDER BY o.created_at LIMIT $2", [audioTimestampCutoff, limit]);
-  return r.rows;
+  const rows = await getPrisma().$queryRaw(Prisma.sql`
+    SELECT o.job_id, o.payload
+    FROM audio_job_outbox o
+    JOIN audio_messages a ON a.id = o.audio_id
+    WHERE o.published_at IS NULL
+      AND a.timestamp >= ${audioTimestampCutoff}
+      AND a.timestamp >= NOW() - INTERVAL ${RETENTION_INTERVAL}
+    ORDER BY o.created_at
+    LIMIT ${limit}
+  `);
+  return rows;
 }
+
 async function publishedAudioJobs(limit = 100) {
-  const r = await getPool().query("SELECT o.job_id,o.audio_id FROM audio_job_outbox o JOIN audio_messages a ON a.id=o.audio_id WHERE o.published_at IS NOT NULL AND o.payload <> '{}'::jsonb AND a.timestamp >= $1 AND a.timestamp >= NOW() - INTERVAL '" + DATA_RETENTION_DAYS + " days' ORDER BY o.created_at LIMIT $2", [audioTimestampCutoff, limit]);
-  return r.rows;
+  const rows = await getPrisma().$queryRaw(Prisma.sql`
+    SELECT o.job_id, o.audio_id
+    FROM audio_job_outbox o
+    JOIN audio_messages a ON a.id = o.audio_id
+    WHERE o.published_at IS NOT NULL
+      AND o.payload <> '{}'::jsonb
+      AND a.timestamp >= ${audioTimestampCutoff}
+      AND a.timestamp >= NOW() - INTERVAL ${RETENTION_INTERVAL}
+    ORDER BY o.created_at
+    LIMIT ${limit}
+  `);
+  return rows;
 }
+
 async function markAudioJobPublished(jobId) {
-  await getPool().query('UPDATE audio_job_outbox SET published_at=NOW() WHERE job_id=$1 AND published_at IS NULL', [jobId]);
+  await getPrisma().$executeRaw(Prisma.sql`
+    UPDATE audio_job_outbox SET published_at = NOW()
+    WHERE job_id = ${jobId} AND published_at IS NULL
+  `);
 }
+
 async function completeAudioJob(audioId) {
-  await getPool().query("UPDATE audio_job_outbox SET payload='{}'::jsonb WHERE audio_id=$1", [audioId]);
+  await getPrisma().$executeRaw(Prisma.sql`
+    UPDATE audio_job_outbox SET payload = '{}'::jsonb WHERE audio_id = ${BigInt(audioId)}
+  `);
 }
+
 async function markAudioJobForRetry(audioId) {
-  await getPool().query('UPDATE audio_job_outbox SET published_at=NULL WHERE audio_id=$1', [audioId]);
+  await getPrisma().$executeRaw(Prisma.sql`
+    UPDATE audio_job_outbox SET published_at = NULL WHERE audio_id = ${BigInt(audioId)}
+  `);
 }
+
 async function getAudioJobState(id) {
-  const r = await getPool().query('SELECT file_path, transcript, timestamp FROM audio_messages WHERE id=$1 AND timestamp >= $2 AND ' + RETENTION_SQL, [id, audioTimestampCutoff]);
-  return r.rows[0] || null;
+  const rows = await getPrisma().$queryRaw(Prisma.sql`
+    SELECT file_path, transcript, timestamp FROM audio_messages
+    WHERE id = ${BigInt(id)}
+      AND timestamp >= ${audioTimestampCutoff}
+      AND ${Prisma.raw(retentionSql())}
+  `);
+  return rows[0] || null;
 }
 
 async function discardAudioJobsBefore(cutoff = audioTimestampCutoff) {
-  const { rows } = await getPool().query(
-    "UPDATE audio_job_outbox o SET payload='{}'::jsonb, published_at=NOW() FROM audio_messages a " +
-    "WHERE o.audio_id=a.id AND a.timestamp < $1 AND o.payload <> '{}'::jsonb RETURNING o.job_id",
-    [cutoff]);
+  const rows = await getPrisma().$queryRaw(Prisma.sql`
+    UPDATE audio_job_outbox o
+    SET payload = '{}'::jsonb, published_at = NOW()
+    FROM audio_messages a
+    WHERE o.audio_id = a.id AND a.timestamp < ${cutoff} AND o.payload <> '{}'::jsonb
+    RETURNING o.job_id
+  `);
   return rows.map(row => row.job_id);
 }
 
 async function updateAudioFilePath(id, filePath) {
-  await getPool().query('UPDATE audio_messages SET file_path=$1 WHERE id=$2 AND ' + RETENTION_SQL, [filePath || '', id]);
+  await getPrisma().$executeRaw(Prisma.sql`
+    UPDATE audio_messages SET file_path = ${filePath || ''}
+    WHERE id = ${BigInt(id)} AND ${Prisma.raw(retentionSql())}
+  `);
 }
+
 async function updateAudioTranscript(id, transcript, toneAnalysis) {
-  const client = await getPool().connect();
-  try {
-    await client.query('BEGIN');
-    const updated = await client.query('UPDATE audio_messages SET transcript=$1, tone_analysis=$2 WHERE id=$3 AND ' + RETENTION_SQL + ' RETURNING account_id,timestamp', [transcript || '', toneAnalysis || '', id]);
-    if (updated.rows[0]) await bumpDailyReportRevision(client, updated.rows[0].account_id, getLocalDateString(new Date(updated.rows[0].timestamp)));
-    await client.query('COMMIT');
-  } catch (err) { await client.query('ROLLBACK'); throw err; }
-  finally { client.release(); }
+  await getPrisma().$transaction(async tx => {
+    const [updated] = await tx.$queryRaw(Prisma.sql`
+      UPDATE audio_messages SET transcript = ${transcript || ''}, tone_analysis = ${toneAnalysis || ''}
+      WHERE id = ${BigInt(id)} AND ${Prisma.raw(retentionSql())}
+      RETURNING account_id, timestamp
+    `);
+    if (updated) await bumpDailyReportRevision(tx, updated.account_id, getLocalDateString(new Date(updated.timestamp)));
+  });
 }
+
 async function getAudioMessages(accountId = null, date = null, period = 'today') {
   const [start, end] = getReportRange(period, date);
-  const values = [start, end];
-  let accountClause = '';
-  if (accountId) { values.push(accountId); accountClause = ' AND account_id=$3'; }
-  const r = await getPool().query('SELECT * FROM audio_messages WHERE timestamp >= $1 AND timestamp < $2 AND ' + RETENTION_SQL + ' AND ' + isDirectChatSql('audio_messages') + accountClause + ' ORDER BY timestamp', values);
-  return r.rows.map(row => ({ ...row, display_time: formatCairoTime(new Date(row.timestamp)) }));
+  const p = getPrisma();
+  const retSQL = retentionSql('audio_messages');
+  let rows;
+  if (accountId) {
+    rows = await p.$queryRaw(Prisma.sql`
+      SELECT * FROM audio_messages
+      WHERE timestamp >= ${new Date(start)} AND timestamp < ${new Date(end)}
+        AND ${Prisma.raw(retSQL)} AND ${Prisma.raw(isDirectChatSql('audio_messages'))}
+        AND account_id = ${accountId}
+      ORDER BY timestamp
+    `);
+  } else {
+    rows = await p.$queryRaw(Prisma.sql`
+      SELECT * FROM audio_messages
+      WHERE timestamp >= ${new Date(start)} AND timestamp < ${new Date(end)}
+        AND ${Prisma.raw(retSQL)} AND ${Prisma.raw(isDirectChatSql('audio_messages'))}
+      ORDER BY timestamp
+    `);
+  }
+  return rows.map(row => ({ ...row, display_time: formatCairoTime(new Date(row.timestamp)) }));
 }
 
 async function getCustomerNumbers(accountId = null, date = null, period = 'today') {
   const [start, end] = getReportRange(period, date);
-  const values = [start, end];
-  let accountClause = '';
-  if (accountId) { values.push(accountId); accountClause = ' AND account_id=$3'; }
-  const sql = "SELECT DISTINCT ON (regexp_replace(customer_phone, '[^0-9]', '', 'g')) account_name, customer_name, customer_phone FROM (" +
-    'SELECT account_id,account_name,customer_name,customer_phone,chat_id,timestamp FROM messages UNION ALL ' +
-    'SELECT account_id,account_name,customer_name,customer_phone,chat_id,timestamp FROM audio_messages) c ' +
-    'WHERE timestamp >= $1 AND timestamp < $2 AND ' + RETENTION_SQL + ' AND (chat_id IS NULL OR (chat_id NOT LIKE \'%@g.us\' AND chat_id NOT LIKE \'%@broadcast\' AND chat_id NOT LIKE \'%@newsletter\')) ' +
-    "AND customer_phone IS NOT NULL AND customer_phone <> ''" + accountClause + " ORDER BY regexp_replace(customer_phone, '[^0-9]', '', 'g'), account_name, customer_name";
-  return (await getPool().query(sql, values)).rows;
+  const p = getPrisma();
+  const retSQL = retentionSql();
+  let rows;
+  if (accountId) {
+    rows = await p.$queryRaw(Prisma.sql`
+      SELECT DISTINCT ON (regexp_replace(customer_phone, '[^0-9]', '', 'g'))
+        account_name, customer_name, customer_phone
+      FROM (
+        SELECT account_id, account_name, customer_name, customer_phone, chat_id, timestamp FROM messages
+        UNION ALL
+        SELECT account_id, account_name, customer_name, customer_phone, chat_id, timestamp FROM audio_messages
+      ) c
+      WHERE timestamp >= ${new Date(start)} AND timestamp < ${new Date(end)}
+        AND ${Prisma.raw(retSQL)}
+        AND (chat_id IS NULL OR (chat_id NOT LIKE '%@g.us' AND chat_id NOT LIKE '%@broadcast' AND chat_id NOT LIKE '%@newsletter'))
+        AND customer_phone IS NOT NULL AND customer_phone <> ''
+        AND account_id = ${accountId}
+      ORDER BY regexp_replace(customer_phone, '[^0-9]', '', 'g'), account_name, customer_name
+    `);
+  } else {
+    rows = await p.$queryRaw(Prisma.sql`
+      SELECT DISTINCT ON (regexp_replace(customer_phone, '[^0-9]', '', 'g'))
+        account_name, customer_name, customer_phone
+      FROM (
+        SELECT account_id, account_name, customer_name, customer_phone, chat_id, timestamp FROM messages
+        UNION ALL
+        SELECT account_id, account_name, customer_name, customer_phone, chat_id, timestamp FROM audio_messages
+      ) c
+      WHERE timestamp >= ${new Date(start)} AND timestamp < ${new Date(end)}
+        AND ${Prisma.raw(retSQL)}
+        AND (chat_id IS NULL OR (chat_id NOT LIKE '%@g.us' AND chat_id NOT LIKE '%@broadcast' AND chat_id NOT LIKE '%@newsletter'))
+        AND customer_phone IS NOT NULL AND customer_phone <> ''
+      ORDER BY regexp_replace(customer_phone, '[^0-9]', '', 'g'), account_name, customer_name
+    `);
+  }
+  return rows;
 }
 
 async function getLeadFollowupContacts(accountId = null, date = null, period = 'today') {
   const [start, end] = getReportRange(period, date);
-  const values = [start, end];
-  let accountClause = '';
-  if (accountId) { values.push(accountId); accountClause = ' AND account_id=$3'; }
-  const result = await getPool().query(
-    'SELECT account_id,account_name,customer_name,customer_phone,chat_id,timestamp FROM (' +
-    'SELECT account_id,account_name,customer_name,customer_phone,chat_id,timestamp FROM messages ' +
-    'UNION ALL SELECT account_id,account_name,customer_name,customer_phone,chat_id,timestamp FROM audio_messages) c ' +
-    'WHERE timestamp >= $1 AND timestamp < $2 AND ' + isDirectChatSql('c') + accountClause + ' ORDER BY timestamp', values);
+  const p = getPrisma();
+  const isDirectSQL = isDirectChatSql('c');
+  let result;
+  if (accountId) {
+    result = await p.$queryRaw(Prisma.sql`
+      SELECT account_id, account_name, customer_name, customer_phone, chat_id, timestamp
+      FROM (
+        SELECT account_id, account_name, customer_name, customer_phone, chat_id, timestamp FROM messages
+        UNION ALL
+        SELECT account_id, account_name, customer_name, customer_phone, chat_id, timestamp FROM audio_messages
+      ) c
+      WHERE timestamp >= ${new Date(start)} AND timestamp < ${new Date(end)}
+        AND ${Prisma.raw(isDirectSQL)}
+        AND account_id = ${accountId}
+      ORDER BY timestamp
+    `);
+  } else {
+    result = await p.$queryRaw(Prisma.sql`
+      SELECT account_id, account_name, customer_name, customer_phone, chat_id, timestamp
+      FROM (
+        SELECT account_id, account_name, customer_name, customer_phone, chat_id, timestamp FROM messages
+        UNION ALL
+        SELECT account_id, account_name, customer_name, customer_phone, chat_id, timestamp FROM audio_messages
+      ) c
+      WHERE timestamp >= ${new Date(start)} AND timestamp < ${new Date(end)}
+        AND ${Prisma.raw(isDirectSQL)}
+      ORDER BY timestamp
+    `);
+  }
+
   const contacts = new Map();
   const phoneByChat = new Map();
-  for (const row of result.rows) {
+  for (const row of result) {
     if (!row.customer_phone || !row.chat_id) continue;
     const chat = String(row.chat_id).trim().replace(/@(c\.us|s\.whatsapp\.net|lid)$/i, '');
     const phoneHash = contactHash(row.customer_phone, null);
     if (phoneHash) phoneByChat.set(`${row.account_id}\u0000${chat}`, phoneHash);
   }
-  for (const row of result.rows) {
+  for (const row of result) {
     const chat = String(row.chat_id || '').trim().replace(/@(c\.us|s\.whatsapp\.net|lid)$/i, '');
     const phoneHash = contactHash(row.customer_phone, null) || phoneByChat.get(`${row.account_id}\u0000${chat}`);
     const chatHash = contactHash(null, row.chat_id);
@@ -460,18 +760,17 @@ async function getLeadFollowupContacts(accountId = null, date = null, period = '
   }
   const hashes = [...new Set([...contacts.values()].flatMap(contact => [...contact.identityHashes]))];
   if (!hashes.length) return { leads: [], followups: [], leadCount: 0, followupCount: 0 };
-  const history = await getPool().query(
-    'SELECT contact_hash,first_contact_at,baseline_contact FROM customer_contact_history WHERE contact_hash=ANY($1::varchar[])', [hashes]);
-  const historyByHash = new Map(history.rows.map(row => [row.contact_hash, row]));
+  const history = await p.$queryRaw(Prisma.sql`
+    SELECT contact_hash, first_contact_at, baseline_contact
+    FROM customer_contact_history
+    WHERE contact_hash = ANY(${hashes}::varchar[])
+  `);
+  const historyByHash = new Map(history.map(row => [row.contact_hash, row]));
   const startTime = new Date(start).getTime();
   const leads = [];
   const followups = [];
   for (const contact of contacts.values()) {
     const matchingHistory = [...contact.identityHashes].map(hash => historyByHash.get(hash)).filter(Boolean);
-    // A contact is new only if all known identity aliases (phone and WhatsApp
-    // chat id) first appeared within this period, with no historical baseline.
-    // This avoids calling a previously contacted student a lead after their
-    // phone number becomes available for a chat that was first stored by LID.
     const isLead = matchingHistory.length > 0 && matchingHistory.every(record =>
       !record.baseline_contact && new Date(record.first_contact_at).getTime() >= startTime);
     const historicalBaseline = matchingHistory.some(record => Boolean(record.baseline_contact));
@@ -484,12 +783,28 @@ async function getLeadFollowupContacts(accountId = null, date = null, period = '
 
 async function getTodayMessages(accountId = null, date = null, period = 'today') {
   const [start, end] = getReportRange(period, date);
-  const values = [start, end];
-  let accountClause = '';
-  if (accountId) { values.push(accountId); accountClause = ' AND account_id=$3'; }
-  const sql = 'SELECT id,account_id,account_name,customer_name,customer_phone,chat_id,message_id,sender,text,timestamp,display_time FROM messages ' +
-    'WHERE timestamp >= $1 AND timestamp < $2 AND ' + RETENTION_SQL + ' AND ' + isDirectChatSql('messages') + accountClause + ' ORDER BY account_id,customer_name,timestamp';
-  const { rows } = await getPool().query(sql, values);
+  const p = getPrisma();
+  const retSQL = retentionSql('messages');
+  const isDirectSQL = isDirectChatSql('messages');
+  let rows;
+  if (accountId) {
+    rows = await p.$queryRaw(Prisma.sql`
+      SELECT id, account_id, account_name, customer_name, customer_phone, chat_id, message_id, sender, text, timestamp, display_time
+      FROM messages
+      WHERE timestamp >= ${new Date(start)} AND timestamp < ${new Date(end)}
+        AND ${Prisma.raw(retSQL)} AND ${Prisma.raw(isDirectSQL)}
+        AND account_id = ${accountId}
+      ORDER BY account_id, customer_name, timestamp
+    `);
+  } else {
+    rows = await p.$queryRaw(Prisma.sql`
+      SELECT id, account_id, account_name, customer_name, customer_phone, chat_id, message_id, sender, text, timestamp, display_time
+      FROM messages
+      WHERE timestamp >= ${new Date(start)} AND timestamp < ${new Date(end)}
+        AND ${Prisma.raw(retSQL)} AND ${Prisma.raw(isDirectSQL)}
+      ORDER BY account_id, customer_name, timestamp
+    `);
+  }
   return rows.map(row => ({ ...row, display_time: formatCairoTime(new Date(row.timestamp)) }));
 }
 
@@ -595,22 +910,66 @@ function buildReportInputManifest(messages = [], audioRows = []) {
 
 async function getTodayStats(date = null, accountId = null, period = 'today') {
   const [start, end] = getReportRange(period, date);
-  const values = [start, end, start, end];
-  let a1 = '', a2 = '';
-  if (accountId) { values.push(accountId, accountId); a1 = ' AND account_id=$5'; a2 = ' AND account_id=$6'; }
-  const cte = 'WITH raw_messages AS (' +
-    'SELECT account_id,account_name,' + customerKeySql('messages') + ' AS phone_key,' + chatKeySql('messages') + ' AS raw_chat_key,sender FROM messages WHERE timestamp >= $1 AND timestamp < $2 AND ' + RETENTION_SQL + a1 + ' AND ' + isDirectChatSql('messages') +
-    ' UNION ALL SELECT account_id,account_name,' + customerKeySql('audio_messages') + ' AS phone_key,' + chatKeySql('audio_messages') + ' AS raw_chat_key,sender FROM audio_messages WHERE timestamp >= $3 AND timestamp < $4 AND ' + RETENTION_SQL + a2 + ' AND ' + isDirectChatSql('audio_messages') +
-    '), day_messages AS (SELECT account_id,account_name,COALESCE(MAX(phone_key) OVER (PARTITION BY account_id,COALESCE(raw_chat_key,phone_key)),phone_key,raw_chat_key) AS chat_key,sender FROM raw_messages) ';
-  const [totals, accounts] = await Promise.all([
-    getPool().query(cte + 'SELECT COUNT(DISTINCT account_id) AS accounts,COUNT(DISTINCT (account_id,chat_key)) FILTER (WHERE chat_key IS NOT NULL) AS chats,COUNT(*) AS total_messages,' +
-      "COUNT(*) FILTER (WHERE sender='sales') AS sales_messages,COUNT(*) FILTER (WHERE sender='customer') AS customer_messages FROM day_messages", values),
-    getPool().query(cte + 'SELECT account_id,MIN(account_name) AS account_name,COUNT(DISTINCT chat_key) FILTER (WHERE chat_key IS NOT NULL) AS chats,COUNT(*) AS total_messages,' +
-      "COUNT(*) FILTER (WHERE sender='sales') AS sales_messages,COUNT(*) FILTER (WHERE sender='customer') AS customer_messages FROM day_messages GROUP BY account_id ORDER BY account_name", values)
-  ]);
-  const stats = totals.rows[0];
+  const p = getPrisma();
+  const retSQL = retentionSql();
+  const isDirectM = isDirectChatSql('messages');
+  const isDirectA = isDirectChatSql('audio_messages');
+  const ckM = customerKeySql('messages');
+  const ckA = customerKeySql('audio_messages');
+  const chatM = chatKeySql('messages');
+  const chatA = chatKeySql('audio_messages');
+
+  const startDt = new Date(start);
+  const endDt = new Date(end);
+
+  let totals, accounts;
+  if (accountId) {
+    const cte = `
+      WITH raw_messages AS (
+        SELECT account_id, account_name, ${ckM} AS phone_key, ${chatM} AS raw_chat_key, sender
+        FROM messages
+        WHERE timestamp >= $1::timestamptz AND timestamp < $2::timestamptz AND ${retSQL} AND account_id = $5 AND ${isDirectM}
+        UNION ALL
+        SELECT account_id, account_name, ${ckA} AS phone_key, ${chatA} AS raw_chat_key, sender
+        FROM audio_messages
+        WHERE timestamp >= $3::timestamptz AND timestamp < $4::timestamptz AND ${retSQL} AND account_id = $6 AND ${isDirectA}
+      ),
+      day_messages AS (
+        SELECT account_id, account_name,
+          COALESCE(MAX(phone_key) OVER (PARTITION BY account_id, COALESCE(raw_chat_key, phone_key)), phone_key, raw_chat_key) AS chat_key, sender
+        FROM raw_messages
+      )
+    `;
+    [totals, accounts] = await Promise.all([
+      p.$queryRaw(Prisma.sql`${Prisma.raw(cte + `SELECT COUNT(DISTINCT account_id) AS accounts, COUNT(DISTINCT (account_id,chat_key)) FILTER (WHERE chat_key IS NOT NULL) AS chats, COUNT(*) AS total_messages, COUNT(*) FILTER (WHERE sender='sales') AS sales_messages, COUNT(*) FILTER (WHERE sender='customer') AS customer_messages FROM day_messages`)}`, startDt, endDt, startDt, endDt, accountId, accountId),
+      p.$queryRaw(Prisma.sql`${Prisma.raw(cte + `SELECT account_id, MIN(account_name) AS account_name, COUNT(DISTINCT chat_key) FILTER (WHERE chat_key IS NOT NULL) AS chats, COUNT(*) AS total_messages, COUNT(*) FILTER (WHERE sender='sales') AS sales_messages, COUNT(*) FILTER (WHERE sender='customer') AS customer_messages FROM day_messages GROUP BY account_id ORDER BY account_name`)}`, startDt, endDt, startDt, endDt, accountId, accountId)
+    ]);
+  } else {
+    const cte = `
+      WITH raw_messages AS (
+        SELECT account_id, account_name, ${ckM} AS phone_key, ${chatM} AS raw_chat_key, sender
+        FROM messages
+        WHERE timestamp >= $1::timestamptz AND timestamp < $2::timestamptz AND ${retSQL} AND ${isDirectM}
+        UNION ALL
+        SELECT account_id, account_name, ${ckA} AS phone_key, ${chatA} AS raw_chat_key, sender
+        FROM audio_messages
+        WHERE timestamp >= $3::timestamptz AND timestamp < $4::timestamptz AND ${retSQL} AND ${isDirectA}
+      ),
+      day_messages AS (
+        SELECT account_id, account_name,
+          COALESCE(MAX(phone_key) OVER (PARTITION BY account_id, COALESCE(raw_chat_key, phone_key)), phone_key, raw_chat_key) AS chat_key, sender
+        FROM raw_messages
+      )
+    `;
+    [totals, accounts] = await Promise.all([
+      p.$queryRaw(Prisma.sql`${Prisma.raw(cte + `SELECT COUNT(DISTINCT account_id) AS accounts, COUNT(DISTINCT (account_id,chat_key)) FILTER (WHERE chat_key IS NOT NULL) AS chats, COUNT(*) AS total_messages, COUNT(*) FILTER (WHERE sender='sales') AS sales_messages, COUNT(*) FILTER (WHERE sender='customer') AS customer_messages FROM day_messages`)}`, startDt, endDt, startDt, endDt),
+      p.$queryRaw(Prisma.sql`${Prisma.raw(cte + `SELECT account_id, MIN(account_name) AS account_name, COUNT(DISTINCT chat_key) FILTER (WHERE chat_key IS NOT NULL) AS chats, COUNT(*) AS total_messages, COUNT(*) FILTER (WHERE sender='sales') AS sales_messages, COUNT(*) FILTER (WHERE sender='customer') AS customer_messages FROM day_messages GROUP BY account_id ORDER BY account_name`)}`, startDt, endDt, startDt, endDt)
+    ]);
+  }
+
+  const stats = totals[0];
   for (const key of Object.keys(stats)) stats[key] = Number(stats[key]);
-  stats.perAccount = Object.fromEntries(accounts.rows.map(row => [row.account_id, {
+  stats.perAccount = Object.fromEntries(accounts.map(row => [row.account_id, {
     accountId: row.account_id, accountName: row.account_name, chats: Number(row.chats), totalMessages: Number(row.total_messages),
     salesMessages: Number(row.sales_messages), customerMessages: Number(row.customer_messages)
   }]));
@@ -619,124 +978,165 @@ async function getTodayStats(date = null, accountId = null, period = 'today') {
 
 async function saveSalesDailyScores(scores, { date, leadCounts = {}, followupCounts = {}, conversationCounts = {} }) {
   if (!Array.isArray(scores) || !scores.length) return 0;
-  const client = await getPool().connect();
+  const p = getPrisma();
   let saved = 0;
-  try {
-    await client.query('BEGIN');
+  await p.$transaction(async tx => {
     for (const score of scores) {
       const overall = Number(score.overallScore);
       if (!score.accountId || !Number.isInteger(overall) || overall < 0 || overall > 100) continue;
-      await client.query(
-        'INSERT INTO sales_daily_scores (account_id,score_date,account_name,overall_score,improvement,lead_count,followup_count,conversation_count,generated_at) ' +
-        'VALUES ($1,$2::date,$3,$4,$5,$6,$7,$8,NOW()) ON CONFLICT (account_id,score_date) DO UPDATE SET account_name=EXCLUDED.account_name,' +
-        'overall_score=EXCLUDED.overall_score,improvement=EXCLUDED.improvement,lead_count=EXCLUDED.lead_count,followup_count=EXCLUDED.followup_count,' +
-        'conversation_count=EXCLUDED.conversation_count,generated_at=NOW()',
-        [score.accountId, date, String(score.accountName || ''), overall, String(score.improvement || '').slice(0, 1200),
-          leadCounts[score.accountId] || 0, followupCounts[score.accountId] || 0, conversationCounts[score.accountId] || 0]);
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO sales_daily_scores (account_id, score_date, account_name, overall_score, improvement, lead_count, followup_count, conversation_count, generated_at)
+        VALUES (${score.accountId}, ${date}::date, ${String(score.accountName || '')}, ${overall}, ${String(score.improvement || '').slice(0, 1200)},
+          ${leadCounts[score.accountId] || 0}, ${followupCounts[score.accountId] || 0}, ${conversationCounts[score.accountId] || 0}, NOW())
+        ON CONFLICT (account_id, score_date) DO UPDATE SET
+          account_name = EXCLUDED.account_name,
+          overall_score = EXCLUDED.overall_score,
+          improvement = EXCLUDED.improvement,
+          lead_count = EXCLUDED.lead_count,
+          followup_count = EXCLUDED.followup_count,
+          conversation_count = EXCLUDED.conversation_count,
+          generated_at = NOW()
+      `);
       saved++;
     }
-    await client.query('COMMIT');
-    return saved;
-  } catch (err) { await client.query('ROLLBACK'); throw err; }
-  finally { client.release(); }
+  });
+  return saved;
 }
 
 async function getMonthlySalesScores(month, accountId = null) {
   if (!/^\d{4}-\d{2}$/.test(month || '')) throw new Error('شهر غير صالح');
   const [year, monthNumber] = month.split('-').map(Number);
   const nextMonth = new Date(Date.UTC(year, monthNumber, 1)).toISOString().slice(0, 10);
-  const values = [month + '-01', nextMonth];
-  let accountClause = '';
-  if (accountId) { values.push(accountId); accountClause = ' AND account_id=$3'; }
-  const result = await getPool().query('SELECT account_id,score_date,account_name,overall_score,improvement,lead_count,followup_count,conversation_count,generated_at ' +
-    'FROM sales_daily_scores WHERE score_date >= $1::date AND score_date < $2::date' + accountClause + ' ORDER BY score_date,account_name', values);
-  return result.rows;
+  const p = getPrisma();
+  if (accountId) {
+    return await p.$queryRaw(Prisma.sql`
+      SELECT account_id, score_date, account_name, overall_score, improvement, lead_count, followup_count, conversation_count, generated_at
+      FROM sales_daily_scores
+      WHERE score_date >= ${month + '-01'}::date AND score_date < ${nextMonth}::date AND account_id = ${accountId}
+      ORDER BY score_date, account_name
+    `);
+  }
+  return await p.$queryRaw(Prisma.sql`
+    SELECT account_id, score_date, account_name, overall_score, improvement, lead_count, followup_count, conversation_count, generated_at
+    FROM sales_daily_scores
+    WHERE score_date >= ${month + '-01'}::date AND score_date < ${nextMonth}::date
+    ORDER BY score_date, account_name
+  `);
 }
 
 async function clearTodayMessages(date = null, accountId = null) {
   const [start, end] = getCairoDateRange(date);
-  const client = await getPool().connect();
-  try {
-    await client.query('BEGIN');
-    const values = [start, end];
-    let clause = '';
-    if (accountId) { values.push(accountId); clause = ' AND account_id=$3'; }
-    const files = await client.query('SELECT file_path FROM audio_messages WHERE timestamp >= $1 AND timestamp < $2 AND ' + RETENTION_SQL + clause, values);
-    const messages = await client.query('DELETE FROM messages WHERE timestamp >= $1 AND timestamp < $2 AND ' + RETENTION_SQL + clause, values);
-    const audio = await client.query('DELETE FROM audio_messages WHERE timestamp >= $1 AND timestamp < $2 AND ' + RETENTION_SQL + clause, values);
-    if (messages.rowCount || audio.rowCount) {
-      if (accountId) await bumpDailyReportRevision(client, accountId, getLocalDateString(new Date(start)));
-      else await bumpDailyReportRevision(client, null, getLocalDateString(new Date(start)));
+  const p = getPrisma();
+  const retSQL = retentionSql();
+
+  return await p.$transaction(async tx => {
+    let files, messages, audio;
+    if (accountId) {
+      files = await tx.$queryRaw(Prisma.sql`
+        SELECT file_path FROM audio_messages WHERE timestamp >= ${new Date(start)} AND timestamp < ${new Date(end)} AND ${Prisma.raw(retSQL)} AND account_id = ${accountId}
+      `);
+      messages = await tx.$queryRaw(Prisma.sql`
+        DELETE FROM messages WHERE timestamp >= ${new Date(start)} AND timestamp < ${new Date(end)} AND ${Prisma.raw(retSQL)} AND account_id = ${accountId} RETURNING id
+      `);
+      audio = await tx.$queryRaw(Prisma.sql`
+        DELETE FROM audio_messages WHERE timestamp >= ${new Date(start)} AND timestamp < ${new Date(end)} AND ${Prisma.raw(retSQL)} AND account_id = ${accountId} RETURNING id
+      `);
+    } else {
+      files = await tx.$queryRaw(Prisma.sql`
+        SELECT file_path FROM audio_messages WHERE timestamp >= ${new Date(start)} AND timestamp < ${new Date(end)} AND ${Prisma.raw(retSQL)}
+      `);
+      messages = await tx.$queryRaw(Prisma.sql`
+        DELETE FROM messages WHERE timestamp >= ${new Date(start)} AND timestamp < ${new Date(end)} AND ${Prisma.raw(retSQL)} RETURNING id
+      `);
+      audio = await tx.$queryRaw(Prisma.sql`
+        DELETE FROM audio_messages WHERE timestamp >= ${new Date(start)} AND timestamp < ${new Date(end)} AND ${Prisma.raw(retSQL)} RETURNING id
+      `);
     }
-    await client.query('COMMIT');
-    return { messages: messages.rowCount, audio: audio.rowCount, deleted: messages.rowCount + audio.rowCount, audioFiles: files.rows.map(r=>r.file_path).filter(Boolean) };
-  } catch (err) { await client.query('ROLLBACK'); throw err; }
-  finally { client.release(); }
+    if (messages.length || audio.length) {
+      await bumpDailyReportRevision(tx, accountId || null, getLocalDateString(new Date(start)));
+    }
+    return {
+      messages: messages.length,
+      audio: audio.length,
+      deleted: messages.length + audio.length,
+      audioFiles: files.map(r => r.file_path).filter(Boolean)
+    };
+  });
 }
 
-// Delete expired messages transactionally; audio records cascade to their outbox rows.
+// حذف البيانات المنتهية الصلاحية؛ سجلات الصوت تتتالى إلى صفوف outbox
 async function purgeExpiredData() {
   if (DATA_RETENTION_DAYS >= 36500) {
     console.log('[Retention] Permanent retention active (Never Delete); skipping cleanup.');
     return { messages: 0, audio: 0, audioIds: [], audioFiles: [] };
   }
-  const client = await getPool().connect();
-  try {
-    await client.query('BEGIN');
-    const files = await client.query(`SELECT id, file_path FROM audio_messages WHERE timestamp < NOW() - INTERVAL '${DATA_RETENTION_DAYS} days'`);
-    const messages = await client.query(`DELETE FROM messages WHERE timestamp < NOW() - INTERVAL '${DATA_RETENTION_DAYS} days' RETURNING account_id,timestamp`);
-    const audio = await client.query(`DELETE FROM audio_messages WHERE timestamp < NOW() - INTERVAL '${DATA_RETENTION_DAYS} days' RETURNING account_id,timestamp`);
-    const touched = new Set([...messages.rows, ...audio.rows].map(row => `${row.account_id}\u0000${getLocalDateString(new Date(row.timestamp))}`));
+  const p = getPrisma();
+
+  return await p.$transaction(async tx => {
+    const files = await tx.$queryRaw(Prisma.sql`
+      SELECT id, file_path FROM audio_messages WHERE timestamp < NOW() - INTERVAL ${RETENTION_INTERVAL}
+    `);
+    const messages = await tx.$queryRaw(Prisma.sql`
+      DELETE FROM messages WHERE timestamp < NOW() - INTERVAL ${RETENTION_INTERVAL} RETURNING account_id, timestamp
+    `);
+    const audio = await tx.$queryRaw(Prisma.sql`
+      DELETE FROM audio_messages WHERE timestamp < NOW() - INTERVAL ${RETENTION_INTERVAL} RETURNING account_id, timestamp
+    `);
+    const touched = new Set([...messages, ...audio].map(row => `${row.account_id}\u0000${getLocalDateString(new Date(row.timestamp))}`));
     for (const item of touched) {
       const [accountId, date] = item.split('\u0000');
-      await bumpDailyReportRevision(client, accountId, date);
+      await bumpDailyReportRevision(tx, accountId, date);
     }
-    await client.query(`DELETE FROM daily_report_cache WHERE generated_at < NOW()-INTERVAL '${DATA_RETENTION_DAYS} days' OR report_date <= to_char((NOW()-INTERVAL '${DATA_RETENTION_DAYS} days')::date, 'YYYY-MM-DD')`);
-    await client.query(`DELETE FROM daily_report_revisions WHERE report_date < to_char((NOW()-INTERVAL '${DATA_RETENTION_DAYS + 1} days')::date, 'YYYY-MM-DD')`);
-    await client.query("DELETE FROM gemini_usage WHERE occurred_at < NOW()-INTERVAL '30 days'");
-    await client.query('COMMIT');
+    await tx.$executeRaw(Prisma.sql`
+      DELETE FROM daily_report_cache
+      WHERE generated_at < NOW() - INTERVAL ${RETENTION_INTERVAL}
+        OR report_date <= to_char((NOW() - INTERVAL ${RETENTION_INTERVAL})::date, 'YYYY-MM-DD')
+    `);
+    const retentionPlus1 = `${DATA_RETENTION_DAYS + 1} days`;
+    await tx.$executeRaw(Prisma.sql`
+      DELETE FROM daily_report_revisions WHERE report_date < to_char((NOW() - INTERVAL ${retentionPlus1})::date, 'YYYY-MM-DD')
+    `);
+    await tx.$executeRaw(Prisma.sql`
+      DELETE FROM gemini_usage WHERE occurred_at < NOW() - INTERVAL '30 days'
+    `);
     return {
-      messages: messages.rowCount,
-      audio: audio.rowCount,
-      audioIds: files.rows.map(row => String(row.id)),
-      audioFiles: files.rows.map(row => row.file_path).filter(Boolean)
+      messages: messages.length,
+      audio: audio.length,
+      audioIds: files.map(row => String(row.id)),
+      audioFiles: files.map(row => row.file_path).filter(Boolean)
     };
-  } catch (err) { await client.query('ROLLBACK'); throw err; }
-  finally { client.release(); }
+  });
 }
 
 async function recordSalesChatSeen(accountId, chatId, unreadCount = 0, seenAt = new Date().toISOString()) {
   if (!accountId || !chatId) return;
-  const p = getPool();
-  await p.query(`
+  await getPrisma().$executeRaw(Prisma.sql`
     INSERT INTO sales_chat_seen (account_id, chat_id, seen_at, unread_count)
-    VALUES ($1, $2, $3, $4)
+    VALUES (${accountId}, ${chatId}, ${new Date(seenAt)}, ${unreadCount})
     ON CONFLICT (account_id, chat_id)
-    DO UPDATE SET seen_at = EXCLUDED.seen_at, unread_count = EXCLUDED.unread_count;
-  `, [accountId, chatId, seenAt, unreadCount]);
+    DO UPDATE SET seen_at = EXCLUDED.seen_at, unread_count = EXCLUDED.unread_count
+  `);
 }
 
 async function getCustomerProfile(chatId) {
   if (!chatId) return null;
-  const p = getPool();
-  const res = await p.query(
-    'SELECT chat_id, customer_phone, customer_name, first_account_name, last_account_name, first_contact_at, last_contact_at, brief, status, updated_at FROM customer_profiles WHERE chat_id = $1',
-    [chatId]
-  );
-  return res.rows[0] || null;
+  const rows = await getPrisma().$queryRaw(Prisma.sql`
+    SELECT chat_id, customer_phone, customer_name, first_account_name, last_account_name,
+           first_contact_at, last_contact_at, brief, status, updated_at
+    FROM customer_profiles WHERE chat_id = ${chatId}
+  `);
+  return rows[0] || null;
 }
 
 async function saveCustomerProfile({ chatId, customerPhone, customerName, firstAccountName, lastAccountName, brief, status = 'active' }) {
   if (!chatId) return null;
-  const p = getPool();
-  const res = await p.query(`
+  const rows = await getPrisma().$queryRaw(Prisma.sql`
     INSERT INTO customer_profiles (
       chat_id, customer_phone, customer_name, first_account_name, last_account_name,
       first_contact_at, last_contact_at, brief, status, updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), $6, $7, NOW())
-    ON CONFLICT (chat_id)
-    DO UPDATE SET
+    VALUES (${chatId}, ${customerPhone || null}, ${customerName || null}, ${firstAccountName || null}, ${lastAccountName || null}, NOW(), NOW(), ${brief || ''}, ${status}, NOW())
+    ON CONFLICT (chat_id) DO UPDATE SET
       customer_phone = COALESCE(EXCLUDED.customer_phone, customer_profiles.customer_phone),
       customer_name = COALESCE(EXCLUDED.customer_name, customer_profiles.customer_name),
       last_account_name = COALESCE(EXCLUDED.last_account_name, customer_profiles.last_account_name),
@@ -744,28 +1144,37 @@ async function saveCustomerProfile({ chatId, customerPhone, customerName, firstA
       brief = EXCLUDED.brief,
       status = EXCLUDED.status,
       updated_at = NOW()
-    RETURNING *;
-  `, [chatId, customerPhone || null, customerName || null, firstAccountName || null, lastAccountName || null, brief || '', status]);
-  return res.rows[0];
+    RETURNING *
+  `);
+  return rows[0] || null;
 }
 
 async function getActiveChatsForDate(dateStr) {
-  const p = getPool();
+  const p = getPrisma();
   const { start, end } = getCairoDateRange(dateStr);
-  const res = await p.query(`
+  return await p.$queryRaw(Prisma.sql`
     SELECT DISTINCT chat_id, customer_name, customer_phone, account_name
     FROM (
-      SELECT chat_id, customer_name, customer_phone, account_name, timestamp FROM messages WHERE timestamp >= $1 AND timestamp <= $2 AND chat_id IS NOT NULL
+      SELECT chat_id, customer_name, customer_phone, account_name, timestamp
+      FROM messages WHERE timestamp >= ${new Date(start)} AND timestamp <= ${new Date(end)} AND chat_id IS NOT NULL
       UNION ALL
-      SELECT chat_id, customer_name, customer_phone, account_name, timestamp FROM audio_messages WHERE timestamp >= $1 AND timestamp <= $2 AND chat_id IS NOT NULL
+      SELECT chat_id, customer_name, customer_phone, account_name, timestamp
+      FROM audio_messages WHERE timestamp >= ${new Date(start)} AND timestamp <= ${new Date(end)} AND chat_id IS NOT NULL
     ) active_today
-  `, [start, end]);
-  return res.rows;
+  `);
 }
 
-module.exports = { initialize, close, setAudioTimestampCutoff, saveMessage, captureAudio, pendingAudioJobs, publishedAudioJobs, discardAudioJobsBefore, markAudioJobPublished,
-  completeAudioJob, markAudioJobForRetry, getAudioJobState, updateAudioFilePath, updateAudioTranscript, getAudioMessages, getCustomerNumbers, getTodayMessages,
-  formatMessagesForGemini, buildReportInputManifest, getTodayStats, clearTodayMessages, purgeExpiredData, getLocalDateString,
-  getPool, formatPhoneNumber, updateCustomerPhoneForChat, getDailyReportRevision, getCachedDailyReport, storeDailyReportCache,
-  recordGeminiUsage, REPORT_PROMPT_VERSION, getLeadFollowupContacts, saveSalesDailyScores, getMonthlySalesScores, DATA_RETENTION_DAYS, DATA_RETENTION_MS,
-  recordSalesChatSeen, getCustomerProfile, saveCustomerProfile, getActiveChatsForDate };
+module.exports = {
+  initialize, close, setAudioTimestampCutoff, saveMessage, captureAudio,
+  pendingAudioJobs, publishedAudioJobs, discardAudioJobsBefore, markAudioJobPublished,
+  completeAudioJob, markAudioJobForRetry, getAudioJobState, updateAudioFilePath, updateAudioTranscript,
+  getAudioMessages, getCustomerNumbers, getTodayMessages,
+  formatMessagesForGemini, buildReportInputManifest, getTodayStats, clearTodayMessages, purgeExpiredData,
+  getLocalDateString, getPool, formatPhoneNumber, updateCustomerPhoneForChat,
+  getDailyReportRevision, getCachedDailyReport, storeDailyReportCache,
+  recordGeminiUsage, REPORT_PROMPT_VERSION, getLeadFollowupContacts, saveSalesDailyScores, getMonthlySalesScores,
+  DATA_RETENTION_DAYS, DATA_RETENTION_MS,
+  recordSalesChatSeen, getCustomerProfile, saveCustomerProfile, getActiveChatsForDate,
+  // Prisma instance مباشر للاستخدام الداخلي إن احتجت
+  getPrisma
+};

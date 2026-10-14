@@ -133,3 +133,30 @@ model SalesDailyScore {
   @@index([scoreDate], map: "idx_sales_daily_scores_date")
   @@map("sales_daily_scores")
 }
+
+model SalesChatSeen {
+  accountId   String   @map("account_id")
+  chatId      String   @map("chat_id")
+  seenAt      DateTime @default(now()) @map("seen_at") @db.Timestamptz(6)
+  unreadCount Int      @default(0) @map("unread_count")
+
+  @@id([accountId, chatId])
+  @@map("sales_chat_seen")
+}
+
+model CustomerProfile {
+  chatId           String    @id @map("chat_id")
+  customerPhone    String?   @map("customer_phone")
+  customerName     String?   @map("customer_name")
+  firstAccountName String?   @map("first_account_name")
+  lastAccountName  String?   @map("last_account_name")
+  firstContactAt   DateTime? @default(now()) @map("first_contact_at") @db.Timestamptz(6)
+  lastContactAt    DateTime? @default(now()) @map("last_contact_at") @db.Timestamptz(6)
+  brief            String?   @default("")
+  status           String?   @default("active")
+  updatedAt        DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@index([customerPhone], map: "idx_customer_profiles_phone")
+  @@index([updatedAt], map: "idx_customer_profiles_updated_at")
+  @@map("customer_profiles")
+}

@@ -8,6 +8,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const { Prisma } = require('@prisma/client');
 const db = require('./database');
 const gemini = require('./gemini');
 const {
@@ -117,16 +118,16 @@ async function loadAccounts() {
 
   // إذا لم يكن الملف موجوداً، نستكشف الحسابات المسجلة من قاعدة البيانات
   try {
-    const pool = db.getPool();
-    if (pool) {
-      const res = await pool.query(`
-        SELECT DISTINCT account_id, account_name 
-        FROM messages 
+    const prisma = db.getPrisma();
+    if (prisma) {
+      const rows = await prisma.$queryRaw(Prisma.sql`
+        SELECT DISTINCT account_id, account_name
+        FROM messages
         WHERE account_id IS NOT NULL AND account_name IS NOT NULL
         ORDER BY account_name ASC
       `);
-      if (res.rows.length > 0) {
-        return res.rows.map(r => ({
+      if (rows.length > 0) {
+        return rows.map(r => ({
           id: r.account_id,
           name: r.account_name,
           schedule: { enabled: true, start: '10:00', end: '19:00', workDays: [6, 0, 1, 2, 3, 4] }
@@ -661,40 +662,42 @@ async function getTodayMessagesPreview(accountId, period) {
 
 async function getChatsList({ accountId = null, search = '', limit = 100, offset = 0 } = {}) {
   await initialize();
-  const pool = db.getPool();
+  const prisma = db.getPrisma();
   const excludedPhones = getExcludedPhonesNormalized();
 
-  let filterSql = DATA_RETENTION_DAYS >= 36500
-    ? 'WHERE chat_id IS NOT NULL'
-    : `WHERE timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days' AND chat_id IS NOT NULL`;
-  const params = [];
+  // بناء أجزاء SQL ديناميكية بأمان
+  const retentionClause = DATA_RETENTION_DAYS >= 36500
+    ? Prisma.sql`chat_id IS NOT NULL`
+    : Prisma.sql`timestamp >= NOW() - INTERVAL ${`${DATA_RETENTION_DAYS} days`} AND chat_id IS NOT NULL`;
 
-  if (accountId) {
-    params.push(accountId);
-    const pIdx = params.length;
-    filterSql += ` AND (account_id = $${pIdx} OR account_name = $${pIdx})`;
-  }
+  const accountClause = accountId
+    ? Prisma.sql`AND (account_id = ${accountId} OR account_name = ${accountId})`
+    : Prisma.sql``;
 
-  let searchSql = '';
-  if (search && String(search).trim()) {
-    params.push(`%${String(search).trim()}%`);
-    const pIdx = params.length;
-    searchSql = ` AND (customer_name ILIKE $${pIdx} OR customer_phone ILIKE $${pIdx} OR text ILIKE $${pIdx} OR chat_id ILIKE $${pIdx})`;
-  }
+  const searchTerm = search && String(search).trim() ? `%${String(search).trim()}%` : null;
+  const searchClause = searchTerm
+    ? Prisma.sql`AND (customer_name ILIKE ${searchTerm} OR customer_phone ILIKE ${searchTerm} OR text ILIKE ${searchTerm} OR chat_id ILIKE ${searchTerm})`
+    : Prisma.sql``;
+  const searchClauseAudio = searchTerm
+    ? Prisma.sql`AND (customer_name ILIKE ${searchTerm} OR customer_phone ILIKE ${searchTerm} OR transcript ILIKE ${searchTerm} OR chat_id ILIKE ${searchTerm})`
+    : Prisma.sql``;
 
-  const query = `
+  const limitVal = Number(limit) || 150;
+  const offsetVal = Number(offset) || 0;
+
+  const rows = await prisma.$queryRaw(Prisma.sql`
     WITH combined AS (
       SELECT id, chat_id, customer_name, customer_phone, account_id, account_name, text, sender, timestamp, 'text' AS msg_type
       FROM messages
-      ${filterSql} ${searchSql}
+      WHERE ${retentionClause} ${accountClause} ${searchClause}
       UNION ALL
       SELECT id, chat_id, customer_name, customer_phone, account_id, account_name, COALESCE(transcript, '🎤 تسجيل صوتي') AS text, sender, timestamp, 'audio' AS msg_type
       FROM audio_messages
-      ${filterSql} ${searchSql}
+      WHERE ${retentionClause} ${accountClause} ${searchClauseAudio}
     ),
     chat_sales AS (
-      SELECT 
-        c.chat_id, 
+      SELECT
+        c.chat_id,
         MAX(CASE WHEN c.sender = 'sales' THEN c.timestamp ELSE NULL END) AS last_sales_time,
         MAX(scs.seen_at) AS last_seen_at,
         MAX(scs.unread_count) AS reported_unread
@@ -703,11 +706,11 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
       GROUP BY c.chat_id
     ),
     ranked AS (
-      SELECT 
+      SELECT
         c.chat_id, c.customer_name, c.customer_phone, c.account_id, c.account_name, c.text, c.sender, c.timestamp, c.msg_type,
         ROW_NUMBER() OVER (PARTITION BY c.chat_id ORDER BY c.timestamp DESC) AS rn,
         COUNT(*) OVER (PARTITION BY c.chat_id) AS total_count,
-        CASE 
+        CASE
           WHEN c.sender = 'sales' THEN 0
           WHEN cs.last_seen_at IS NOT NULL AND cs.last_seen_at >= c.timestamp THEN 0
           WHEN cs.reported_unread IS NOT NULL AND cs.reported_unread > 0 THEN cs.reported_unread
@@ -716,18 +719,17 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
       FROM combined c
       JOIN chat_sales cs ON c.chat_id = cs.chat_id
     )
-    SELECT 
-      chat_id, customer_name, customer_phone, account_id, account_name, 
-      text AS last_message, sender AS last_sender, timestamp AS last_time, 
+    SELECT
+      chat_id, customer_name, customer_phone, account_id, account_name,
+      text AS last_message, sender AS last_sender, timestamp AS last_time,
       msg_type AS last_type, total_count AS message_count, unread_count
     FROM ranked
     WHERE rn = 1
     ORDER BY last_time DESC
-    LIMIT ${Number(limit) || 150} OFFSET ${Number(offset) || 0};
-  `;
+    LIMIT ${limitVal} OFFSET ${offsetVal}
+  `);
 
-  const res = await pool.query(query, params);
-  return res.rows.filter(r => {
+  return rows.filter(r => {
     if (!excludedPhones.size) return true;
     const pDigits = String(r.customer_phone || '').replace(/\D/g, '');
     if (pDigits && excludedPhones.has(pDigits)) return false;
@@ -757,63 +759,54 @@ async function getChatMessages({ chatId, accountId = null, limit = 30, beforeTim
     empty.hasMore = false;
     return empty;
   }
-  const pool = db.getPool();
+  const prisma = db.getPrisma();
 
-  const params = [chatId];
-  let accFilter = '';
-  if (accountId) {
-    params.push(accountId);
-    const pIdx = params.length;
-    accFilter = ` AND (account_id = $${pIdx} OR account_name = $${pIdx})`;
-  }
+  const accFilter = accountId
+    ? Prisma.sql`AND (account_id = ${accountId} OR account_name = ${accountId})`
+    : Prisma.sql``;
 
   // cursor يعتمد على (timestamp, id) معاً لتجنب ضياع رسائل لها نفس الـ timestamp
-  let beforeFilter = '';
+  let beforeFilter = Prisma.sql``;
   if (beforeTimestamp) {
     const parsedDate = new Date(beforeTimestamp);
     if (!isNaN(parsedDate.getTime())) {
-      params.push(parsedDate);
-      const tIdx = params.length;
       if (beforeId) {
-        // استخدام (timestamp, id) cursor لتجنب ضياع رسائل متزامنة
-        params.push(String(beforeId));
-        const iIdx = params.length;
-        beforeFilter = ` AND (timestamp < $${tIdx} OR (timestamp = $${tIdx} AND id < $${iIdx}::bigint))`;
+        beforeFilter = Prisma.sql`AND (timestamp < ${parsedDate} OR (timestamp = ${parsedDate} AND id < ${BigInt(beforeId)}))`;
       } else {
-        beforeFilter = ` AND timestamp < $${tIdx}`;
+        beforeFilter = Prisma.sql`AND timestamp < ${parsedDate}`;
       }
     }
   }
 
-  const retentionSql = DATA_RETENTION_DAYS >= 36500 ? '' : `AND timestamp >= NOW() - INTERVAL '${DATA_RETENTION_DAYS} days'`;
+  const retentionFilter = DATA_RETENTION_DAYS >= 36500
+    ? Prisma.sql``
+    : Prisma.sql`AND timestamp >= NOW() - INTERVAL ${`${DATA_RETENTION_DAYS} days`}`;
 
   const fetchLimit = Math.min(Math.max(Number(limit) || 30, 1), 100);
   const queryLimit = fetchLimit + 1;
 
   // الاستعلام الصحيح: subquery مباشرة بدلاً من CTE لتجنب غموض ORDER BY داخل UNION ALL في PostgreSQL
-  const query = `
+  const res = await prisma.$queryRaw(Prisma.sql`
     SELECT * FROM (
       SELECT
         id, account_id, account_name, customer_name, customer_phone, chat_id,
         sender, text, NULL::text AS transcript, NULL::text AS tone_analysis, NULL::int AS duration_sec,
         'text' AS type, timestamp, display_time
       FROM messages
-      WHERE chat_id = $1 ${accFilter} ${retentionSql} ${beforeFilter}
+      WHERE chat_id = ${chatId} ${accFilter} ${retentionFilter} ${beforeFilter}
       UNION ALL
       SELECT
         id, account_id, account_name, customer_name, customer_phone, chat_id,
         sender, NULL::text AS text, transcript, tone_analysis, duration_sec,
         'audio' AS type, timestamp, display_time
       FROM audio_messages
-      WHERE chat_id = $1 ${accFilter} ${retentionSql} ${beforeFilter}
+      WHERE chat_id = ${chatId} ${accFilter} ${retentionFilter} ${beforeFilter}
     ) AS combined
     ORDER BY timestamp DESC, id DESC
-    LIMIT ${queryLimit};
-  `;
-
-  const res = await pool.query(query, params);
+    LIMIT ${queryLimit}
+  `);
   // الصفوف جاءت DESC (الأحدث أولاً) بعدد queryLimit على الأكثر
-  const rows = res.rows;
+  const rows = res;
   const hasMore = rows.length > fetchLimit;
 
   // نحذف الصف الزائد (الأقدم في النتيجة = rows[rows.length-1]) الذي جلبناه فقط للكشف عن hasMore
@@ -841,38 +834,40 @@ async function getChatMessages({ chatId, accountId = null, limit = 30, beforeTim
 
 async function getLatestMessageIds() {
   await initialize();
-  const pool = db.getPool();
-  const resMsg = await pool.query('SELECT COALESCE(MAX(id), 0) AS max_id FROM messages');
-  const resAudio = await pool.query('SELECT COALESCE(MAX(id), 0) AS max_id FROM audio_messages');
+  const prisma = db.getPrisma();
+  const [[resMsg], [resAudio]] = await Promise.all([
+    prisma.$queryRaw(Prisma.sql`SELECT COALESCE(MAX(id), 0) AS max_id FROM messages`),
+    prisma.$queryRaw(Prisma.sql`SELECT COALESCE(MAX(id), 0) AS max_id FROM audio_messages`)
+  ]);
   return {
-    lastMsgId: Number(resMsg.rows[0].max_id) || 0,
-    lastAudioId: Number(resAudio.rows[0].max_id) || 0
+    lastMsgId: Number(resMsg.max_id) || 0,
+    lastAudioId: Number(resAudio.max_id) || 0
   };
 }
 
 async function getNewMessagesSince(lastMsgId = 0, lastAudioId = 0) {
   await initialize();
-  const pool = db.getPool();
+  const prisma = db.getPrisma();
 
-  const [msgsRes, audioRes] = await Promise.all([
-    pool.query(`
+  const [msgs, audios] = await Promise.all([
+    prisma.$queryRaw(Prisma.sql`
       SELECT id, account_id, account_name, customer_name, customer_phone, chat_id, sender, text, timestamp, display_time, 'text' AS type
       FROM messages
-      WHERE id > $1
+      WHERE id > ${BigInt(lastMsgId)}
       ORDER BY id ASC
       LIMIT 50
-    `, [lastMsgId]),
-    pool.query(`
+    `),
+    prisma.$queryRaw(Prisma.sql`
       SELECT id, account_id, account_name, customer_name, customer_phone, chat_id, sender, transcript, tone_analysis, duration_sec, timestamp, display_time, 'audio' AS type
       FROM audio_messages
-      WHERE id > $1
+      WHERE id > ${BigInt(lastAudioId)}
       ORDER BY id ASC
       LIMIT 50
-    `, [lastAudioId])
+    `)
   ]);
 
   const newItems = [
-    ...msgsRes.rows.map(r => ({
+    ...msgs.map(r => ({
       id: Number(r.id),
       chatId: r.chat_id,
       accountId: r.account_id,
@@ -885,7 +880,7 @@ async function getNewMessagesSince(lastMsgId = 0, lastAudioId = 0) {
       timestamp: r.timestamp,
       displayTime: formatCairoTime(r.timestamp)
     })),
-    ...audioRes.rows.map(r => ({
+    ...audios.map(r => ({
       id: Number(r.id),
       chatId: r.chat_id,
       accountId: r.account_id,
@@ -904,8 +899,8 @@ async function getNewMessagesSince(lastMsgId = 0, lastAudioId = 0) {
 
   newItems.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-  const newMaxMsgId = msgsRes.rows.length ? Math.max(...msgsRes.rows.map(r => Number(r.id))) : lastMsgId;
-  const newMaxAudioId = audioRes.rows.length ? Math.max(...audioRes.rows.map(r => Number(r.id))) : lastAudioId;
+  const newMaxMsgId = msgs.length ? Math.max(...msgs.map(r => Number(r.id))) : lastMsgId;
+  const newMaxAudioId = audios.length ? Math.max(...audios.map(r => Number(r.id))) : lastAudioId;
 
   return {
     items: newItems,
@@ -922,12 +917,16 @@ async function testGeminiConnection() {
 async function getRecentSalesSeenUpdates(since) {
   try {
     await initialize();
-    const pool = db.getPool();
-    const res = await pool.query(
-      'SELECT account_id, chat_id, unread_count, seen_at FROM sales_chat_seen WHERE seen_at > $1 ORDER BY seen_at ASC LIMIT 200',
-      [since || new Date(0)]
-    );
-    return res.rows.map(r => ({
+    const prisma = db.getPrisma();
+    const sinceDate = since ? new Date(since) : new Date(0);
+    const rows = await prisma.$queryRaw(Prisma.sql`
+      SELECT account_id, chat_id, unread_count, seen_at
+      FROM sales_chat_seen
+      WHERE seen_at > ${sinceDate}
+      ORDER BY seen_at ASC
+      LIMIT 200
+    `);
+    return rows.map(r => ({
       accountId: r.account_id,
       chatId: r.chat_id,
       unreadCount: Number(r.unread_count) || 0,
@@ -941,23 +940,21 @@ async function getRecentSalesSeenUpdates(since) {
 async function getUnreadCounts() {
   try {
     await initialize();
-    const pool = db.getPool();
+    const prisma = db.getPrisma();
     const settings = loadSettings();
     const excludedPhones = new Set((settings.excludedPhones || []).map(p => String(p).replace(/\D/g, '')).filter(Boolean));
 
-    const query = `
+    const rows = await prisma.$queryRaw(Prisma.sql`
       WITH combined AS (
         SELECT id, chat_id, customer_phone, account_id, account_name, sender, timestamp
-        FROM messages
-        WHERE chat_id IS NOT NULL
+        FROM messages WHERE chat_id IS NOT NULL
         UNION ALL
         SELECT id, chat_id, customer_phone, account_id, account_name, sender, timestamp
-        FROM audio_messages
-        WHERE chat_id IS NOT NULL
+        FROM audio_messages WHERE chat_id IS NOT NULL
       ),
       chat_sales AS (
-        SELECT 
-          c.chat_id, 
+        SELECT
+          c.chat_id,
           MAX(CASE WHEN c.sender = 'sales' THEN c.timestamp ELSE NULL END) AS last_sales_time,
           MAX(scs.seen_at) AS last_seen_at,
           MAX(scs.unread_count) AS reported_unread
@@ -966,10 +963,10 @@ async function getUnreadCounts() {
         GROUP BY c.chat_id
       ),
       ranked AS (
-        SELECT 
+        SELECT
           c.chat_id, c.customer_phone, c.account_id, c.account_name, c.sender, c.timestamp,
           ROW_NUMBER() OVER (PARTITION BY c.chat_id ORDER BY c.timestamp DESC) AS rn,
-          CASE 
+          CASE
             WHEN c.sender = 'sales' THEN 0
             WHEN cs.last_seen_at IS NOT NULL AND cs.last_seen_at >= c.timestamp THEN 0
             WHEN cs.reported_unread IS NOT NULL AND cs.reported_unread > 0 THEN cs.reported_unread
@@ -978,14 +975,11 @@ async function getUnreadCounts() {
         FROM combined c
         JOIN chat_sales cs ON c.chat_id = cs.chat_id
       )
-      SELECT 
-        chat_id, customer_phone, account_id, account_name, unread_count
+      SELECT chat_id, customer_phone, account_id, account_name, unread_count
       FROM ranked
-      WHERE rn = 1 AND unread_count > 0;
-    `;
-
-    const res = await pool.query(query);
-    const rows = res.rows.filter(r => {
+      WHERE rn = 1 AND unread_count > 0
+    `);
+    const filteredRows = rows.filter(r => {
       if (!excludedPhones.size) return true;
       const pDigits = String(r.customer_phone || '').replace(/\D/g, '');
       if (pDigits && excludedPhones.has(pDigits)) return false;
@@ -998,7 +992,7 @@ async function getUnreadCounts() {
     const byAccountName = {};
     let totalAll = 0;
 
-    for (const r of rows) {
+    for (const r of filteredRows) {
       totalAll++;
       if (r.account_id) {
         byAccountId[r.account_id] = (byAccountId[r.account_id] || 0) + 1;
