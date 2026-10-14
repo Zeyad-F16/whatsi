@@ -67,14 +67,14 @@ async function initialize() {
   // التحقق من وجود الجداول الأساسية المنشأة بواسطة Prisma migrate
   const tableCheck = await p.$queryRaw(Prisma.sql`
     SELECT
-      to_regclass('public.messages') AS messages,
-      to_regclass('public.audio_messages') AS audio_messages,
-      to_regclass('public.audio_job_outbox') AS audio_job_outbox,
-      to_regclass('public.daily_report_revisions') AS report_revisions,
-      to_regclass('public.daily_report_cache') AS report_cache,
-      to_regclass('public.gemini_usage') AS gemini_usage,
-      to_regclass('public.customer_contact_history') AS contact_history,
-      to_regclass('public.sales_daily_scores') AS sales_daily_scores
+      to_regclass('public.messages')::text AS messages,
+      to_regclass('public.audio_messages')::text AS audio_messages,
+      to_regclass('public.audio_job_outbox')::text AS audio_job_outbox,
+      to_regclass('public.daily_report_revisions')::text AS report_revisions,
+      to_regclass('public.daily_report_cache')::text AS report_cache,
+      to_regclass('public.gemini_usage')::text AS gemini_usage,
+      to_regclass('public.customer_contact_history')::text AS contact_history,
+      to_regclass('public.sales_daily_scores')::text AS sales_daily_scores
   `);
   const tc = tableCheck[0];
   if (!tc.messages || !tc.audio_messages || !tc.audio_job_outbox ||
