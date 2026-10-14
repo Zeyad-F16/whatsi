@@ -712,7 +712,7 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
   // بناء أجزاء SQL ديناميكية بأمان
   const retentionClause = DATA_RETENTION_DAYS >= 36500
     ? Prisma.sql`chat_id IS NOT NULL`
-    : Prisma.sql`timestamp >= NOW() - INTERVAL ${`${DATA_RETENTION_DAYS} days`} AND chat_id IS NOT NULL`;
+    : Prisma.sql`timestamp >= NOW() - ${Prisma.raw(`INTERVAL '${Number(DATA_RETENTION_DAYS)} days'`)} AND chat_id IS NOT NULL`;
 
   let accountClause = Prisma.sql``;
   if (accountId) {
@@ -834,7 +834,7 @@ async function getChatMessages({ chatId, accountId = null, limit = 30, beforeTim
 
   const retentionFilter = DATA_RETENTION_DAYS >= 36500
     ? Prisma.sql``
-    : Prisma.sql`AND timestamp >= NOW() - INTERVAL ${`${DATA_RETENTION_DAYS} days`}`;
+    : Prisma.sql`AND timestamp >= NOW() - ${Prisma.raw(`INTERVAL '${Number(DATA_RETENTION_DAYS)} days'`)}`;
 
   const fetchLimit = Math.min(Math.max(Number(limit) || 30, 1), 100);
   const queryLimit = fetchLimit + 1;

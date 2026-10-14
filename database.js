@@ -7,6 +7,8 @@ let prisma;
 const DATA_RETENTION_DAYS = Math.max(1, Number(process.env.DATA_RETENTION_DAYS || 36500));
 const DATA_RETENTION_MS = DATA_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 const RETENTION_INTERVAL = `${DATA_RETENTION_DAYS} days`;
+const RETENTION_SQL_INTERVAL = Prisma.raw(`INTERVAL '${DATA_RETENTION_DAYS} days'`);
+const RETENTION_PLUS_1_SQL = Prisma.raw(`INTERVAL '${DATA_RETENTION_DAYS + 1} days'`);
 let audioTimestampCutoff = new Date(Date.now() - 5 * 60 * 1000);
 
 function setAudioTimestampCutoff(timestampSeconds) {
@@ -165,78 +167,24 @@ async function getCachedDailyReport(accountId, date, sourceVersion, period = 'to
   const isRolling = ['last48h', 'last7days'].includes(normalizeReportPeriod(period));
   const key = reportRevisionKey(accountId, period);
 
-  let row;
-  if (!allowSourceChanges && !allowPromptChanges) {
-    if (isRolling) {
-      [row] = await p.$queryRaw(Prisma.sql`
-        SELECT payload, source_version, prompt_version FROM daily_report_cache
-        WHERE account_key = ${key} AND report_date = ${date}
-          AND source_version = ${sourceVersion} AND prompt_version = ${REPORT_PROMPT_VERSION}
-          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
-          AND NULLIF(payload->>'cacheValidUntil','') IS NOT NULL
-          AND (payload->>'cacheValidUntil')::timestamptz > NOW()
-      `);
-    } else {
-      [row] = await p.$queryRaw(Prisma.sql`
-        SELECT payload, source_version, prompt_version FROM daily_report_cache
-        WHERE account_key = ${key} AND report_date = ${date}
-          AND source_version = ${sourceVersion} AND prompt_version = ${REPORT_PROMPT_VERSION}
-          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
-      `);
-    }
-  } else if (!allowSourceChanges) {
-    if (isRolling) {
-      [row] = await p.$queryRaw(Prisma.sql`
-        SELECT payload, source_version, prompt_version FROM daily_report_cache
-        WHERE account_key = ${key} AND report_date = ${date}
-          AND source_version = ${sourceVersion}
-          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
-          AND NULLIF(payload->>'cacheValidUntil','') IS NOT NULL
-          AND (payload->>'cacheValidUntil')::timestamptz > NOW()
-      `);
-    } else {
-      [row] = await p.$queryRaw(Prisma.sql`
-        SELECT payload, source_version, prompt_version FROM daily_report_cache
-        WHERE account_key = ${key} AND report_date = ${date}
-          AND source_version = ${sourceVersion}
-          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
-      `);
-    }
-  } else if (!allowPromptChanges) {
-    if (isRolling) {
-      [row] = await p.$queryRaw(Prisma.sql`
-        SELECT payload, source_version, prompt_version FROM daily_report_cache
-        WHERE account_key = ${key} AND report_date = ${date}
-          AND prompt_version = ${REPORT_PROMPT_VERSION}
-          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
-          AND NULLIF(payload->>'cacheValidUntil','') IS NOT NULL
-          AND (payload->>'cacheValidUntil')::timestamptz > NOW()
-      `);
-    } else {
-      [row] = await p.$queryRaw(Prisma.sql`
-        SELECT payload, source_version, prompt_version FROM daily_report_cache
-        WHERE account_key = ${key} AND report_date = ${date}
-          AND prompt_version = ${REPORT_PROMPT_VERSION}
-          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
-      `);
-    }
-  } else {
-    if (isRolling) {
-      [row] = await p.$queryRaw(Prisma.sql`
-        SELECT payload, source_version, prompt_version FROM daily_report_cache
-        WHERE account_key = ${key} AND report_date = ${date}
-          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
-          AND NULLIF(payload->>'cacheValidUntil','') IS NOT NULL
-          AND (payload->>'cacheValidUntil')::timestamptz > NOW()
-      `);
-    } else {
-      [row] = await p.$queryRaw(Prisma.sql`
-        SELECT payload, source_version, prompt_version FROM daily_report_cache
-        WHERE account_key = ${key} AND report_date = ${date}
-          AND generated_at >= NOW() - INTERVAL ${RETENTION_INTERVAL}
-      `);
-    }
-  }
+  const sourceFilter = !allowSourceChanges ? Prisma.sql`AND source_version = ${sourceVersion}` : Prisma.sql``;
+  const promptFilter = !allowPromptChanges ? Prisma.sql`AND prompt_version = ${REPORT_PROMPT_VERSION}` : Prisma.sql``;
+  const rollingFilter = isRolling
+    ? Prisma.sql`AND NULLIF(payload->>'cacheValidUntil','') IS NOT NULL AND (payload->>'cacheValidUntil')::timestamptz > NOW()`
+    : Prisma.sql``;
+  const retentionFilter = DATA_RETENTION_DAYS >= 36500
+    ? Prisma.sql``
+    : Prisma.sql`AND generated_at >= NOW() - ${RETENTION_SQL_INTERVAL}`;
+
+  const [row] = await p.$queryRaw(Prisma.sql`
+    SELECT payload, source_version, prompt_version FROM daily_report_cache
+    WHERE account_key = ${key} AND report_date = ${date}
+      ${sourceFilter}
+      ${promptFilter}
+      ${retentionFilter}
+      ${rollingFilter}
+  `);
+
   if (!row) return null;
   return { ...row.payload, _cacheSourceVersion: row.source_version, _cachePromptVersion: row.prompt_version };
 }
@@ -554,13 +502,16 @@ async function captureAudio(data) {
 }
 
 async function pendingAudioJobs(limit = 100) {
+  const retentionClause = DATA_RETENTION_DAYS >= 36500
+    ? Prisma.sql``
+    : Prisma.sql`AND a.timestamp >= NOW() - ${RETENTION_SQL_INTERVAL}`;
   const rows = await getPrisma().$queryRaw(Prisma.sql`
     SELECT o.job_id, o.payload
     FROM audio_job_outbox o
     JOIN audio_messages a ON a.id = o.audio_id
     WHERE o.published_at IS NULL
       AND a.timestamp >= ${audioTimestampCutoff}
-      AND a.timestamp >= NOW() - INTERVAL ${RETENTION_INTERVAL}
+      ${retentionClause}
     ORDER BY o.created_at
     LIMIT ${limit}
   `);
@@ -568,6 +519,9 @@ async function pendingAudioJobs(limit = 100) {
 }
 
 async function publishedAudioJobs(limit = 100) {
+  const retentionClause = DATA_RETENTION_DAYS >= 36500
+    ? Prisma.sql``
+    : Prisma.sql`AND a.timestamp >= NOW() - ${RETENTION_SQL_INTERVAL}`;
   const rows = await getPrisma().$queryRaw(Prisma.sql`
     SELECT o.job_id, o.audio_id
     FROM audio_job_outbox o
@@ -575,7 +529,7 @@ async function publishedAudioJobs(limit = 100) {
     WHERE o.published_at IS NOT NULL
       AND o.payload <> '{}'::jsonb
       AND a.timestamp >= ${audioTimestampCutoff}
-      AND a.timestamp >= NOW() - INTERVAL ${RETENTION_INTERVAL}
+      ${retentionClause}
     ORDER BY o.created_at
     LIMIT ${limit}
   `);
@@ -923,52 +877,52 @@ async function getTodayStats(date = null, accountId = null, period = 'today') {
   const startDt = new Date(start);
   const endDt = new Date(end);
 
-  let totals, accounts;
-  if (accountId) {
-    const cte = `
-      WITH raw_messages AS (
-        SELECT account_id, account_name, ${ckM} AS phone_key, ${chatM} AS raw_chat_key, sender
-        FROM messages
-        WHERE timestamp >= $1::timestamptz AND timestamp < $2::timestamptz AND ${retSQL} AND account_id = $5 AND ${isDirectM}
-        UNION ALL
-        SELECT account_id, account_name, ${ckA} AS phone_key, ${chatA} AS raw_chat_key, sender
-        FROM audio_messages
-        WHERE timestamp >= $3::timestamptz AND timestamp < $4::timestamptz AND ${retSQL} AND account_id = $6 AND ${isDirectA}
-      ),
-      day_messages AS (
-        SELECT account_id, account_name,
-          COALESCE(MAX(phone_key) OVER (PARTITION BY account_id, COALESCE(raw_chat_key, phone_key)), phone_key, raw_chat_key) AS chat_key, sender
-        FROM raw_messages
-      )
-    `;
-    [totals, accounts] = await Promise.all([
-      p.$queryRaw(Prisma.sql`${Prisma.raw(cte + `SELECT COUNT(DISTINCT account_id) AS accounts, COUNT(DISTINCT (account_id,chat_key)) FILTER (WHERE chat_key IS NOT NULL) AS chats, COUNT(*) AS total_messages, COUNT(*) FILTER (WHERE sender='sales') AS sales_messages, COUNT(*) FILTER (WHERE sender='customer') AS customer_messages FROM day_messages`)}`, startDt, endDt, startDt, endDt, accountId, accountId),
-      p.$queryRaw(Prisma.sql`${Prisma.raw(cte + `SELECT account_id, MIN(account_name) AS account_name, COUNT(DISTINCT chat_key) FILTER (WHERE chat_key IS NOT NULL) AS chats, COUNT(*) AS total_messages, COUNT(*) FILTER (WHERE sender='sales') AS sales_messages, COUNT(*) FILTER (WHERE sender='customer') AS customer_messages FROM day_messages GROUP BY account_id ORDER BY account_name`)}`, startDt, endDt, startDt, endDt, accountId, accountId)
-    ]);
-  } else {
-    const cte = `
-      WITH raw_messages AS (
-        SELECT account_id, account_name, ${ckM} AS phone_key, ${chatM} AS raw_chat_key, sender
-        FROM messages
-        WHERE timestamp >= $1::timestamptz AND timestamp < $2::timestamptz AND ${retSQL} AND ${isDirectM}
-        UNION ALL
-        SELECT account_id, account_name, ${ckA} AS phone_key, ${chatA} AS raw_chat_key, sender
-        FROM audio_messages
-        WHERE timestamp >= $3::timestamptz AND timestamp < $4::timestamptz AND ${retSQL} AND ${isDirectA}
-      ),
-      day_messages AS (
-        SELECT account_id, account_name,
-          COALESCE(MAX(phone_key) OVER (PARTITION BY account_id, COALESCE(raw_chat_key, phone_key)), phone_key, raw_chat_key) AS chat_key, sender
-        FROM raw_messages
-      )
-    `;
-    [totals, accounts] = await Promise.all([
-      p.$queryRaw(Prisma.sql`${Prisma.raw(cte + `SELECT COUNT(DISTINCT account_id) AS accounts, COUNT(DISTINCT (account_id,chat_key)) FILTER (WHERE chat_key IS NOT NULL) AS chats, COUNT(*) AS total_messages, COUNT(*) FILTER (WHERE sender='sales') AS sales_messages, COUNT(*) FILTER (WHERE sender='customer') AS customer_messages FROM day_messages`)}`, startDt, endDt, startDt, endDt),
-      p.$queryRaw(Prisma.sql`${Prisma.raw(cte + `SELECT account_id, MIN(account_name) AS account_name, COUNT(DISTINCT chat_key) FILTER (WHERE chat_key IS NOT NULL) AS chats, COUNT(*) AS total_messages, COUNT(*) FILTER (WHERE sender='sales') AS sales_messages, COUNT(*) FILTER (WHERE sender='customer') AS customer_messages FROM day_messages GROUP BY account_id ORDER BY account_name`)}`, startDt, endDt, startDt, endDt)
-    ]);
-  }
+  const accountFilterM = accountId ? Prisma.sql`AND account_id = ${accountId}` : Prisma.sql``;
+  const accountFilterA = accountId ? Prisma.sql`AND account_id = ${accountId}` : Prisma.sql``;
 
-  const stats = totals[0];
+  const cte = Prisma.sql`
+    WITH raw_messages AS (
+      SELECT account_id, account_name, ${Prisma.raw(ckM)} AS phone_key, ${Prisma.raw(chatM)} AS raw_chat_key, sender
+      FROM messages
+      WHERE timestamp >= ${startDt} AND timestamp < ${endDt} AND ${Prisma.raw(retSQL)} ${accountFilterM} AND ${Prisma.raw(isDirectM)}
+      UNION ALL
+      SELECT account_id, account_name, ${Prisma.raw(ckA)} AS phone_key, ${Prisma.raw(chatA)} AS raw_chat_key, sender
+      FROM audio_messages
+      WHERE timestamp >= ${startDt} AND timestamp < ${endDt} AND ${Prisma.raw(retSQL)} ${accountFilterA} AND ${Prisma.raw(isDirectA)}
+    ),
+    day_messages AS (
+      SELECT account_id, account_name,
+        COALESCE(MAX(phone_key) OVER (PARTITION BY account_id, COALESCE(raw_chat_key, phone_key)), phone_key, raw_chat_key) AS chat_key, sender
+      FROM raw_messages
+    )
+  `;
+
+  let totals, accounts;
+  [totals, accounts] = await Promise.all([
+    p.$queryRaw(Prisma.sql`
+      ${cte}
+      SELECT COUNT(DISTINCT account_id) AS accounts,
+             COUNT(DISTINCT (account_id,chat_key)) FILTER (WHERE chat_key IS NOT NULL) AS chats,
+             COUNT(*) AS total_messages,
+             COUNT(*) FILTER (WHERE sender='sales') AS sales_messages,
+             COUNT(*) FILTER (WHERE sender='customer') AS customer_messages
+      FROM day_messages
+    `),
+    p.$queryRaw(Prisma.sql`
+      ${cte}
+      SELECT account_id,
+             MIN(account_name) AS account_name,
+             COUNT(DISTINCT chat_key) FILTER (WHERE chat_key IS NOT NULL) AS chats,
+             COUNT(*) AS total_messages,
+             COUNT(*) FILTER (WHERE sender='sales') AS sales_messages,
+             COUNT(*) FILTER (WHERE sender='customer') AS customer_messages
+      FROM day_messages
+      GROUP BY account_id
+      ORDER BY account_name
+    `)
+  ]);
+
+  const stats = totals[0] || {};
   for (const key of Object.keys(stats)) stats[key] = Number(stats[key]);
   stats.perAccount = Object.fromEntries(accounts.map(row => [row.account_id, {
     accountId: row.account_id, accountName: row.account_name, chats: Number(row.chats), totalMessages: Number(row.total_messages),
@@ -1075,13 +1029,13 @@ async function purgeExpiredData() {
 
   return await p.$transaction(async tx => {
     const files = await tx.$queryRaw(Prisma.sql`
-      SELECT id, file_path FROM audio_messages WHERE timestamp < NOW() - INTERVAL ${RETENTION_INTERVAL}
+      SELECT id, file_path FROM audio_messages WHERE timestamp < NOW() - ${RETENTION_SQL_INTERVAL}
     `);
     const messages = await tx.$queryRaw(Prisma.sql`
-      DELETE FROM messages WHERE timestamp < NOW() - INTERVAL ${RETENTION_INTERVAL} RETURNING account_id, timestamp
+      DELETE FROM messages WHERE timestamp < NOW() - ${RETENTION_SQL_INTERVAL} RETURNING account_id, timestamp
     `);
     const audio = await tx.$queryRaw(Prisma.sql`
-      DELETE FROM audio_messages WHERE timestamp < NOW() - INTERVAL ${RETENTION_INTERVAL} RETURNING account_id, timestamp
+      DELETE FROM audio_messages WHERE timestamp < NOW() - ${RETENTION_SQL_INTERVAL} RETURNING account_id, timestamp
     `);
     const touched = new Set([...messages, ...audio].map(row => `${row.account_id}\u0000${getLocalDateString(new Date(row.timestamp))}`));
     for (const item of touched) {
@@ -1090,12 +1044,11 @@ async function purgeExpiredData() {
     }
     await tx.$executeRaw(Prisma.sql`
       DELETE FROM daily_report_cache
-      WHERE generated_at < NOW() - INTERVAL ${RETENTION_INTERVAL}
-        OR report_date <= to_char((NOW() - INTERVAL ${RETENTION_INTERVAL})::date, 'YYYY-MM-DD')
+      WHERE generated_at < NOW() - ${RETENTION_SQL_INTERVAL}
+        OR report_date <= to_char((NOW() - ${RETENTION_SQL_INTERVAL})::date, 'YYYY-MM-DD')
     `);
-    const retentionPlus1 = `${DATA_RETENTION_DAYS + 1} days`;
     await tx.$executeRaw(Prisma.sql`
-      DELETE FROM daily_report_revisions WHERE report_date < to_char((NOW() - INTERVAL ${retentionPlus1})::date, 'YYYY-MM-DD')
+      DELETE FROM daily_report_revisions WHERE report_date < to_char((NOW() - ${RETENTION_PLUS_1_SQL})::date, 'YYYY-MM-DD')
     `);
     await tx.$executeRaw(Prisma.sql`
       DELETE FROM gemini_usage WHERE occurred_at < NOW() - INTERVAL '30 days'
