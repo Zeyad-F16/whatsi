@@ -9,6 +9,7 @@
 // ===== Global State =====
 let currentMainTab = 'whatsapp';
 let accounts = [];
+let allSystemAccounts = [];
 let chats = [];
 let activeChatId = null;
 let selectedSalesAccountId = '';
@@ -19,6 +20,489 @@ let latestEvidenceGate = null;
 let editingAccountId = null;
 let sseConnection = null;
 let searchDebounceTimer = null;
+let currentUser = null;
+let systemUsersList = [];
+
+// ===== FETCH INTERCEPTOR (Attaches Bearer Token to all /api/ calls) =====
+const originalFetch = window.fetch;
+window.fetch = async function(url, options = {}) {
+  if (typeof url === 'string' && url.startsWith('/api/')) {
+    const token = localStorage.getItem('whatsi_auth_token');
+    options = options || {};
+    options.headers = options.headers || {};
+    if (token) {
+      if (options.headers instanceof Headers) {
+        options.headers.set('Authorization', `Bearer ${token}`);
+      } else {
+        options.headers['Authorization'] = `Bearer ${token}`;
+      }
+    }
+    const res = await originalFetch(url, options);
+    if (res.status === 401 && !url.includes('/api/auth/login')) {
+      localStorage.removeItem('whatsi_auth_token');
+      currentUser = null;
+      showLoginModal();
+    }
+    return res;
+  }
+  return originalFetch(url, options);
+};
+
+// ===== AUTHENTICATION & PROFILE LOGIC =====
+function showLoginModal() {
+  const modal = document.getElementById('login-modal');
+  if (modal) {
+    modal.classList.remove('hidden');
+    const userField = document.getElementById('login-username');
+    if (userField) setTimeout(() => userField.focus(), 100);
+  }
+  const headerPill = document.getElementById('user-header-pill');
+  if (headerPill) headerPill.style.display = 'none';
+  if (sseConnection) {
+    sseConnection.close();
+    sseConnection = null;
+  }
+}
+
+function hideLoginModal() {
+  const modal = document.getElementById('login-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function renderUserProfileHeader() {
+  const headerPill = document.getElementById('user-header-pill');
+  if (!headerPill || !currentUser) return;
+
+  headerPill.style.display = 'flex';
+  const nameEl = document.getElementById('user-display-name');
+  const roleEl = document.getElementById('user-role-badge');
+  const avatarEl = document.getElementById('user-avatar-initials');
+  const usersBtn = document.getElementById('header-btn-users');
+
+  if (nameEl) nameEl.textContent = currentUser.name || currentUser.username;
+  if (roleEl) {
+    roleEl.textContent = currentUser.roleLabel || (currentUser.isBoardMember ? 'عضو مجلس إدارة' : 'مدير مبيعات ومراقب جودة');
+    roleEl.className = 'role-badge ' + (currentUser.isBoardMember ? 'role-badge-board' : 'role-badge-sales');
+  }
+  if (avatarEl) {
+    const letter = (currentUser.name || currentUser.username || 'U').charAt(0).toUpperCase();
+    avatarEl.textContent = letter;
+  }
+
+  // إخفاء/إظهار عناصر التحكم الخاصة بمجلس الإدارة فقط
+  if (usersBtn) {
+    usersBtn.style.display = currentUser.isBoardMember ? 'inline-flex' : 'none';
+  }
+
+  // إخفاء أزرار الإعدادات ومواعيد العمل لموظفي المبيعات ومراقبي الجودة
+  const settingsButtons = document.querySelectorAll('.toolbar-btn[onclick*="Settings"], .toolbar-btn[onclick*="Schedules"], .wa-icon-btn[onclick*="Schedules"]');
+  settingsButtons.forEach(btn => {
+    btn.style.display = currentUser.isBoardMember ? '' : 'none';
+  });
+
+  // تحديث عنوان شريط الخطوط في حالة التخصيص
+  const railAllItem = document.getElementById('wa-rail-item-all');
+  if (railAllItem) {
+    const label = railAllItem.querySelector('.wa-rail-label');
+    if (label) {
+      label.textContent = currentUser.isBoardMember || currentUser.allAccounts ? 'الكل' : 'المخصص';
+    }
+  }
+}
+
+window.togglePasswordVisibility = function(fieldId) {
+  const input = document.getElementById(fieldId);
+  if (!input) return;
+  input.type = input.type === 'password' ? 'text' : 'password';
+};
+
+window.submitLoginForm = async function(e) {
+  if (e) e.preventDefault();
+  const usernameInput = document.getElementById('login-username');
+  const passwordInput = document.getElementById('login-password');
+  const errorMsg = document.getElementById('login-error-msg');
+  const submitBtn = document.getElementById('login-submit-btn');
+  const btnText = document.getElementById('login-btn-text');
+  const btnSpinner = document.getElementById('login-btn-spinner');
+
+  if (errorMsg) errorMsg.style.display = 'none';
+
+  const username = usernameInput ? usernameInput.value.trim() : '';
+  const password = passwordInput ? passwordInput.value : '';
+
+  if (!username || !password) {
+    if (errorMsg) {
+      errorMsg.textContent = 'يرجى إدخال اسم المستخدم وكلمة السر';
+      errorMsg.style.display = 'block';
+    }
+    return;
+  }
+
+  if (submitBtn) submitBtn.disabled = true;
+  if (btnText) btnText.style.display = 'none';
+  if (btnSpinner) btnSpinner.style.display = 'inline-block';
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (data.success && data.token) {
+      localStorage.setItem('whatsi_auth_token', data.token);
+      currentUser = data.user;
+      hideLoginModal();
+      renderUserProfileHeader();
+      if (passwordInput) passwordInput.value = '';
+      showToast(`مرحباً بك يا ${currentUser.name || currentUser.username} 👋`, 'success');
+      await init();
+    } else {
+      if (errorMsg) {
+        errorMsg.textContent = data.error || 'اسم المستخدم أو كلمة السر غير صحيحة';
+        errorMsg.style.display = 'block';
+      }
+    }
+  } catch (err) {
+    if (errorMsg) {
+      errorMsg.textContent = 'تعذر الاتصال بالخادم: ' + err.message;
+      errorMsg.style.display = 'block';
+    }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+    if (btnText) btnText.style.display = 'inline-block';
+    if (btnSpinner) btnSpinner.style.display = 'none';
+  }
+};
+
+window.handleLogout = async function() {
+  if (!confirm('هل تريد بالتأكيد تسجيل الخروج من منظومة Whatsi Z-ray؟')) return;
+  try {
+    await fetch('/api/auth/logout', { method: 'POST' });
+  } catch (e) {}
+  localStorage.removeItem('whatsi_auth_token');
+  currentUser = null;
+  showLoginModal();
+};
+
+async function checkAuthAndInit() {
+  const token = localStorage.getItem('whatsi_auth_token');
+  if (!token) {
+    showLoginModal();
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/auth/me');
+    const data = await res.json();
+    if (data.success && data.user) {
+      currentUser = data.user;
+      hideLoginModal();
+      renderUserProfileHeader();
+      await init();
+    } else {
+      localStorage.removeItem('whatsi_auth_token');
+      showLoginModal();
+    }
+  } catch (err) {
+    console.warn('Auth check error:', err.message);
+    showLoginModal();
+  }
+}
+
+// ===== USERS MANAGEMENT (BOARD MEMBER ONLY) =====
+window.openUsersModal = async function() {
+  const modal = document.getElementById('users-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  await loadUsersList();
+};
+
+window.closeUsersModal = function() {
+  const modal = document.getElementById('users-modal');
+  if (modal) modal.classList.add('hidden');
+};
+
+async function loadUsersList() {
+  const tbody = document.getElementById('users-table-body');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color:#8696a0;">جاري تحميل المستخدمين...</td></tr>';
+
+  try {
+    const res = await fetch('/api/users');
+    const data = await res.json();
+    if (data.success && Array.isArray(data.users)) {
+      systemUsersList = data.users;
+      renderUsersTable(data.users);
+    } else {
+      tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px; color:#ff6b6b;">خطأ: ${data.error || 'تعذر جلب المستخدمين'}</td></tr>`;
+    }
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 20px; color:#ff6b6b;">خطأ في الاتصال: ${err.message}</td></tr>`;
+  }
+}
+
+function renderUsersTable(usersList) {
+  const tbody = document.getElementById('users-table-body');
+  if (!tbody) return;
+  if (!usersList.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px; color:#8696a0;">لا يوجد مستخدمين مسجلين بعد.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = usersList.map(u => {
+    const isSelf = currentUser && currentUser.id === u.id;
+    const isBoard = u.isBoardMember;
+    let accountsBadge = '';
+    if (isBoard || u.allAccounts) {
+      accountsBadge = '<span class="account-tag-chip account-tag-all">✨ كل الحسابات والتقارير</span>';
+    } else if (Array.isArray(u.allowedAccounts) && u.allowedAccounts.length > 0) {
+      accountsBadge = u.allowedAccounts.map(accId => {
+        const found = allSystemAccounts.find(a => a.id === accId || a.name === accId);
+        const name = found ? found.name : accId;
+        return `<span class="account-tag-chip">${escapeHtml(name)}</span>`;
+      }).join(' ');
+    } else {
+      accountsBadge = '<span class="account-tag-chip" style="color:#ff6b6b; border-color: rgba(241,92,109,0.3);">⚠️ لا توجد حسابات مخصصة</span>';
+    }
+
+    const initial = (u.name || u.username || 'U').charAt(0).toUpperCase();
+    const dateFormatted = u.createdAt ? new Date(u.createdAt).toLocaleDateString('ar-EG') : '—';
+
+    return `
+      <tr>
+        <td>
+          <div class="user-cell-profile">
+            <div class="user-table-avatar" style="${isBoard ? 'color:#00d26a;' : 'color:#53bdeb;'}">${initial}</div>
+            <div class="user-table-names">
+              <strong>${escapeHtml(u.name || u.username)} ${isSelf ? '<span style="color:#00d26a; font-size:0.75rem;">(أنت)</span>' : ''}</strong>
+              <span>@${escapeHtml(u.username)}</span>
+            </div>
+          </div>
+        </td>
+        <td>
+          <span class="role-badge ${isBoard ? 'role-badge-board' : 'role-badge-sales'}">
+            ${escapeHtml(u.roleLabel || (isBoard ? 'عضو مجلس إدارة' : 'مدير مبيعات ومراقب جودة'))}
+          </span>
+        </td>
+        <td>
+          <div style="max-width: 250px; display:flex; flex-wrap:wrap; gap:4px;">
+            ${accountsBadge}
+          </div>
+        </td>
+        <td>
+          <span style="font-size:0.8rem; color:#8696a0;">${dateFormatted}</span>
+        </td>
+        <td>
+          <div class="user-actions-cell">
+            <button class="table-action-btn btn-edit" onclick="openEditUserModal(${u.id})">✏️ تعديل</button>
+            ${!isSelf ? `<button class="table-action-btn btn-delete" onclick="deleteUserItem(${u.id}, '${escapeHtml(u.username)}')">🗑️ حذف</button>` : ''}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+window.openAddUserModal = function() {
+  const modal = document.getElementById('user-edit-modal');
+  if (!modal) return;
+  document.getElementById('user-edit-modal-title').textContent = '➕ إضافة مستخدم جديد';
+  document.getElementById('user-edit-id').value = '';
+  document.getElementById('user-edit-username').value = '';
+  document.getElementById('user-edit-username').disabled = false;
+  document.getElementById('user-edit-name').value = '';
+  document.getElementById('user-edit-password').value = '';
+  document.getElementById('user-edit-password').required = true;
+  document.getElementById('user-password-hint').style.display = 'none';
+  document.getElementById('user-edit-role').value = 'SALES_MANAGER_QC';
+  document.getElementById('scope-all').checked = true;
+  document.getElementById('user-edit-error').style.display = 'none';
+
+  renderAccountsChecklist([]);
+  handleUserRoleChange();
+  modal.classList.remove('hidden');
+};
+
+window.openEditUserModal = function(userId) {
+  const user = systemUsersList.find(u => u.id === userId);
+  if (!user) return;
+
+  const modal = document.getElementById('user-edit-modal');
+  if (!modal) return;
+
+  document.getElementById('user-edit-modal-title').textContent = `✏️ تعديل المستخدم: @${user.username}`;
+  document.getElementById('user-edit-id').value = user.id;
+  document.getElementById('user-edit-username').value = user.username;
+  document.getElementById('user-edit-username').disabled = true;
+  document.getElementById('user-edit-name').value = user.name || '';
+  document.getElementById('user-edit-password').value = '';
+  document.getElementById('user-edit-password').required = false;
+  document.getElementById('user-password-hint').style.display = 'block';
+  document.getElementById('user-edit-role').value = user.role;
+  document.getElementById('user-edit-error').style.display = 'none';
+
+  if (user.allAccounts) {
+    document.getElementById('scope-all').checked = true;
+  } else {
+    document.getElementById('scope-specific').checked = true;
+  }
+
+  renderAccountsChecklist(user.allowedAccounts || []);
+  handleUserRoleChange();
+  toggleScopeInputs();
+  modal.classList.remove('hidden');
+};
+
+window.closeUserEditModal = function() {
+  const modal = document.getElementById('user-edit-modal');
+  if (modal) modal.classList.add('hidden');
+};
+
+window.handleUserRoleChange = function() {
+  const role = document.getElementById('user-edit-role').value;
+  const configBox = document.getElementById('sales-manager-config-box');
+  if (configBox) {
+    configBox.style.display = role === 'BOARD_MEMBER' ? 'none' : 'block';
+  }
+};
+
+window.toggleScopeInputs = function() {
+  const isSpecific = document.getElementById('scope-specific').checked;
+  const selector = document.getElementById('specific-accounts-selector');
+  if (selector) {
+    selector.style.display = isSpecific ? 'block' : 'none';
+  }
+};
+
+function renderAccountsChecklist(selectedIds = []) {
+  const grid = document.getElementById('accounts-checklist-grid');
+  if (!grid) return;
+  const selectedSet = new Set((selectedIds || []).map(String));
+
+  if (!allSystemAccounts.length) {
+    grid.innerHTML = '<div style="color:#8696a0; font-size:0.8rem; padding:8px;">لا توجد خطوط مبيعات مسجلة حتى الآن.</div>';
+    return;
+  }
+
+  grid.innerHTML = allSystemAccounts.map(acc => {
+    const isChecked = selectedSet.has(String(acc.id)) || selectedSet.has(String(acc.name));
+    return `
+      <label class="account-check-card">
+        <input type="checkbox" name="user-allowed-account" value="${escapeHtml(acc.id)}" ${isChecked ? 'checked' : ''} />
+        <span>${escapeHtml(acc.name)}</span>
+      </label>
+    `;
+  }).join('');
+}
+
+window.toggleAllUserAccounts = function(check) {
+  document.querySelectorAll('input[name="user-allowed-account"]').forEach(cb => {
+    cb.checked = check;
+  });
+};
+
+window.submitUserEditForm = async function(e) {
+  if (e) e.preventDefault();
+  const id = document.getElementById('user-edit-id').value;
+  const username = document.getElementById('user-edit-username').value.trim();
+  const name = document.getElementById('user-edit-name').value.trim();
+  const password = document.getElementById('user-edit-password').value;
+  const role = document.getElementById('user-edit-role').value;
+  const isAllAccounts = document.getElementById('scope-all').checked;
+  const errorEl = document.getElementById('user-edit-error');
+  const saveBtn = document.getElementById('save-user-btn');
+
+  if (errorEl) errorEl.style.display = 'none';
+
+  let allowedAccounts = [];
+  if (role !== 'BOARD_MEMBER' && !isAllAccounts) {
+    document.querySelectorAll('input[name="user-allowed-account"]:checked').forEach(cb => {
+      allowedAccounts.push(cb.value);
+    });
+    if (allowedAccounts.length === 0) {
+      if (errorEl) {
+        errorEl.textContent = 'يرجى اختيار خط مبيعات واحد على الأقل، أو تحديد خيار "السماح برؤية كل شيء"';
+        errorEl.style.display = 'block';
+      }
+      return;
+    }
+  }
+
+  const payload = {
+    username,
+    name,
+    role,
+    allAccounts: role === 'BOARD_MEMBER' ? true : isAllAccounts,
+    allowedAccounts: role === 'BOARD_MEMBER' ? [] : allowedAccounts
+  };
+
+  if (password) {
+    if (password.length < 4) {
+      if (errorEl) {
+        errorEl.textContent = 'كلمة السر يجب ألا تقل عن 4 أحرف';
+        errorEl.style.display = 'block';
+      }
+      return;
+    }
+    payload.password = password;
+  } else if (!id) {
+    if (errorEl) {
+      errorEl.textContent = 'كلمة السر مطلوبة عند إنشاء مستخدم جديد';
+      errorEl.style.display = 'block';
+    }
+    return;
+  }
+
+  if (saveBtn) saveBtn.disabled = true;
+
+  try {
+    const isEdit = Boolean(id);
+    const url = isEdit ? `/api/users/${id}` : '/api/users';
+    const method = isEdit ? 'PUT' : 'POST';
+
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      showToast(isEdit ? 'تم تحديث بيانات وصلاحيات المستخدم بنجاح' : 'تم إضافة المستخدم الجديد بنجاح', 'success');
+      closeUserEditModal();
+      await loadUsersList();
+    } else {
+      if (errorEl) {
+        errorEl.textContent = data.error || 'تعذر حفظ بيانات المستخدم';
+        errorEl.style.display = 'block';
+      }
+    }
+  } catch (err) {
+    if (errorEl) {
+      errorEl.textContent = 'خطأ في الاتصال: ' + err.message;
+      errorEl.style.display = 'block';
+    }
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
+};
+
+window.deleteUserItem = async function(userId, username) {
+  if (!confirm(`هل أنت متأكد من حذف المستخدم (@${username}) نهائياً؟`)) return;
+  try {
+    const res = await fetch(`/api/users/${userId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`تم حذف المستخدم (@${username}) بنجاح`, 'success');
+      await loadUsersList();
+    } else {
+      alert(`⚠️ تعذر حذف المستخدم: ${data.error || 'خطأ غير معروف'}`);
+    }
+  } catch (err) {
+    alert(`⚠️ خطأ في الاتصال: ${err.message}`);
+  }
+};
 
 const AVATAR_COLORS = [
   'linear-gradient(135deg, #00a884, #005c4b)', // Emerald
@@ -83,6 +567,11 @@ async function loadAccounts() {
     const data = await res.json();
     if (data.success && Array.isArray(data.accounts)) {
       accounts = data.accounts;
+      if (Array.isArray(data.allAvailableAccounts)) {
+        allSystemAccounts = data.allAvailableAccounts;
+      } else {
+        allSystemAccounts = data.accounts;
+      }
       populateAccountDropdowns();
     }
   } catch (err) {
@@ -801,7 +1290,10 @@ function connectSSE() {
     sseConnection.close();
   }
 
-  sseConnection = new EventSource('/api/live-stream');
+  const token = localStorage.getItem('whatsi_auth_token') || '';
+  if (!token) return;
+
+  sseConnection = new EventSource(`/api/live-stream?token=${encodeURIComponent(token)}`);
 
   sseConnection.onopen = () => {
     if (statusLabel) statusLabel.textContent = 'مزامنة لحظية متصلة (Live Sync)';
@@ -1598,5 +2090,5 @@ function showToast(message, type = 'info') {
   }, 4000);
 }
 
-// ===== Run =====
-init();
+// ===== Entry Point =====
+checkAuthAndInit();

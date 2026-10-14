@@ -74,12 +74,13 @@ async function initialize() {
       to_regclass('public.daily_report_cache')::text AS report_cache,
       to_regclass('public.gemini_usage')::text AS gemini_usage,
       to_regclass('public.customer_contact_history')::text AS contact_history,
-      to_regclass('public.sales_daily_scores')::text AS sales_daily_scores
+      to_regclass('public.sales_daily_scores')::text AS sales_daily_scores,
+      to_regclass('public.users')::text AS users
   `);
   const tc = tableCheck[0];
   if (!tc.messages || !tc.audio_messages || !tc.audio_job_outbox ||
       !tc.report_revisions || !tc.report_cache || !tc.gemini_usage ||
-      !tc.contact_history || !tc.sales_daily_scores) {
+      !tc.contact_history || !tc.sales_daily_scores || !tc.users) {
     throw new Error('مخطط PostgreSQL غير مطبق. نفّذ الأمر npm run db:migrate قبل تشغيل التطبيق.');
   }
 

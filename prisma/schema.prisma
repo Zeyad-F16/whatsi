@@ -160,3 +160,30 @@ model CustomerProfile {
   @@index([updatedAt], map: "idx_customer_profiles_updated_at")
   @@map("customer_profiles")
 }
+
+model User {
+  id              Int           @id @default(autoincrement())
+  username        String        @unique @db.VarChar(50)
+  password        String        @db.VarChar(255)
+  name            String?       @db.VarChar(100)
+  role            String        @default("BOARD_MEMBER") @db.VarChar(50)
+  allAccounts     Boolean       @default(true) @map("all_accounts")
+  allowedAccounts Json?         @default("[]") @map("allowed_accounts") @db.JsonB
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sessions        UserSession[]
+
+  @@map("users")
+}
+
+model UserSession {
+  id        String   @id @default(uuid())
+  token     String   @unique @db.VarChar(128)
+  userId    Int      @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@index([token], map: "idx_user_sessions_token")
+  @@map("user_sessions")
+}

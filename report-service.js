@@ -649,30 +649,77 @@ async function getMonthlySalesScores(month, accountId) {
   return await db.getMonthlySalesScores(month, accountId);
 }
 
-async function getTodayStats(date, accountId, period) {
+async function getTodayStats(date, accountId, period, allowedAccountIds = null) {
   await initialize();
+  if (allowedAccountIds && Array.isArray(allowedAccountIds)) {
+    if (allowedAccountIds.length === 0) {
+      return {
+        totals: { accounts: 0, chats: 0, totalMessages: 0, salesMessages: 0, customerMessages: 0, leads: 0, followups: 0 },
+        accounts: []
+      };
+    }
+    if (accountId) {
+      if (!allowedAccountIds.includes(String(accountId))) {
+        return {
+          totals: { accounts: 0, chats: 0, totalMessages: 0, salesMessages: 0, customerMessages: 0, leads: 0, followups: 0 },
+          accounts: []
+        };
+      }
+      return await db.getTodayStats(date, accountId, period);
+    }
+    const full = await db.getTodayStats(date, null, period);
+    const filteredAccounts = (full.accounts || []).filter(acc =>
+      allowedAccountIds.includes(String(acc.id || acc.account_id)) || allowedAccountIds.includes(String(acc.name || acc.account_name))
+    );
+    const totals = {
+      accounts: filteredAccounts.length,
+      chats: filteredAccounts.reduce((sum, a) => sum + (Number(a.chats) || 0), 0),
+      totalMessages: filteredAccounts.reduce((sum, a) => sum + (Number(a.total_messages || a.messages) || 0), 0),
+      salesMessages: filteredAccounts.reduce((sum, a) => sum + (Number(a.sales_messages) || 0), 0),
+      customerMessages: filteredAccounts.reduce((sum, a) => sum + (Number(a.customer_messages) || 0), 0),
+      leads: filteredAccounts.reduce((sum, a) => sum + (Number(a.leads) || 0), 0),
+      followups: filteredAccounts.reduce((sum, a) => sum + (Number(a.followups) || 0), 0)
+    };
+    return { totals, accounts: filteredAccounts };
+  }
   return await db.getTodayStats(date, accountId, period);
 }
 
-async function getTodayMessagesPreview(accountId, period) {
+async function getTodayMessagesPreview(accountId, period, allowedAccountIds = null) {
   await initialize();
+  if (allowedAccountIds && Array.isArray(allowedAccountIds)) {
+    if (allowedAccountIds.length === 0) return [];
+    if (accountId && !allowedAccountIds.includes(String(accountId))) return [];
+  }
   const messages = await db.getTodayMessages(accountId, null, period || 'today');
+  if (allowedAccountIds && Array.isArray(allowedAccountIds) && !accountId) {
+    const filtered = messages.filter(m => allowedAccountIds.includes(String(m.account_id)) || allowedAccountIds.includes(String(m.account_name)));
+    return filtered.slice(-100);
+  }
   return messages.slice(-100);
 }
 
-async function getChatsList({ accountId = null, search = '', limit = 100, offset = 0 } = {}) {
+async function getChatsList({ accountId = null, search = '', limit = 100, offset = 0, allowedAccountIds = null } = {}) {
   await initialize();
   const prisma = db.getPrisma();
   const excludedPhones = getExcludedPhonesNormalized();
+
+  if (allowedAccountIds && Array.isArray(allowedAccountIds)) {
+    if (allowedAccountIds.length === 0) return [];
+    if (accountId && !allowedAccountIds.includes(String(accountId))) return [];
+  }
 
   // بناء أجزاء SQL ديناميكية بأمان
   const retentionClause = DATA_RETENTION_DAYS >= 36500
     ? Prisma.sql`chat_id IS NOT NULL`
     : Prisma.sql`timestamp >= NOW() - INTERVAL ${`${DATA_RETENTION_DAYS} days`} AND chat_id IS NOT NULL`;
 
-  const accountClause = accountId
-    ? Prisma.sql`AND (account_id = ${accountId} OR account_name = ${accountId})`
-    : Prisma.sql``;
+  let accountClause = Prisma.sql``;
+  if (accountId) {
+    accountClause = Prisma.sql`AND (account_id = ${accountId} OR account_name = ${accountId})`;
+  } else if (allowedAccountIds && Array.isArray(allowedAccountIds)) {
+    accountClause = Prisma.sql`AND (account_id IN (${Prisma.join(allowedAccountIds)}) OR account_name IN (${Prisma.join(allowedAccountIds)}))`;
+  }
 
   const searchTerm = search && String(search).trim() ? `%${String(search).trim()}%` : null;
   const searchClause = searchTerm
@@ -752,18 +799,25 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
   }));
 }
 
-async function getChatMessages({ chatId, accountId = null, limit = 30, beforeTimestamp = null, beforeId = null } = {}) {
+async function getChatMessages({ chatId, accountId = null, limit = 30, beforeTimestamp = null, beforeId = null, allowedAccountIds = null } = {}) {
   await initialize();
+  const empty = [];
+  empty.hasMore = false;
   if (!chatId) {
-    const empty = [];
-    empty.hasMore = false;
     return empty;
+  }
+  if (allowedAccountIds && Array.isArray(allowedAccountIds)) {
+    if (allowedAccountIds.length === 0) return empty;
+    if (accountId && !allowedAccountIds.includes(String(accountId))) return empty;
   }
   const prisma = db.getPrisma();
 
-  const accFilter = accountId
-    ? Prisma.sql`AND (account_id = ${accountId} OR account_name = ${accountId})`
-    : Prisma.sql``;
+  let accFilter = Prisma.sql``;
+  if (accountId) {
+    accFilter = Prisma.sql`AND (account_id = ${accountId} OR account_name = ${accountId})`;
+  } else if (allowedAccountIds && Array.isArray(allowedAccountIds)) {
+    accFilter = Prisma.sql`AND (account_id IN (${Prisma.join(allowedAccountIds)}) OR account_name IN (${Prisma.join(allowedAccountIds)}))`;
+  }
 
   // cursor يعتمد على (timestamp, id) معاً لتجنب ضياع رسائل لها نفس الـ timestamp
   let beforeFilter = Prisma.sql``;
@@ -937,12 +991,16 @@ async function getRecentSalesSeenUpdates(since) {
   }
 }
 
-async function getUnreadCounts() {
+async function getUnreadCounts(allowedAccountIds = null) {
   try {
     await initialize();
     const prisma = db.getPrisma();
     const settings = loadSettings();
     const excludedPhones = new Set((settings.excludedPhones || []).map(p => String(p).replace(/\D/g, '')).filter(Boolean));
+
+    if (allowedAccountIds && Array.isArray(allowedAccountIds) && allowedAccountIds.length === 0) {
+      return { totalAll: 0, byAccountId: {}, byAccountName: {} };
+    }
 
     const rows = await prisma.$queryRaw(Prisma.sql`
       WITH combined AS (
@@ -980,6 +1038,10 @@ async function getUnreadCounts() {
       WHERE rn = 1 AND unread_count > 0
     `);
     const filteredRows = rows.filter(r => {
+      if (allowedAccountIds && Array.isArray(allowedAccountIds)) {
+        const isAllowed = allowedAccountIds.includes(String(r.account_id)) || allowedAccountIds.includes(String(r.account_name));
+        if (!isAllowed) return false;
+      }
       if (!excludedPhones.size) return true;
       const pDigits = String(r.customer_phone || '').replace(/\D/g, '');
       if (pDigits && excludedPhones.has(pDigits)) return false;

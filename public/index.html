@@ -1013,6 +1013,543 @@
       height: auto;
       flex: none;
     }
+
+    /* ===== AUTH & USER MANAGEMENT STYLES ===== */
+    .header-right-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .user-header-pill {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #182229;
+      border: 1px solid #2a3942;
+      padding: 4px 10px 4px 6px;
+      border-radius: 30px;
+      transition: all 0.2s ease;
+    }
+
+    .user-avatar-circle {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #00a884, #005c4b);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 0.9rem;
+      box-shadow: 0 2px 6px rgba(0, 168, 132, 0.35);
+      flex-shrink: 0;
+    }
+
+    .user-text-meta {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.2;
+    }
+
+    .user-display-name {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #e9edef;
+      max-width: 110px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .role-badge {
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 1px 7px;
+      border-radius: 10px;
+      display: inline-block;
+      width: fit-content;
+      margin-top: 2px;
+    }
+
+    .role-badge-board {
+      background: rgba(0, 210, 106, 0.15);
+      color: #00d26a;
+      border: 1px solid rgba(0, 210, 106, 0.35);
+    }
+
+    .role-badge-sales {
+      background: rgba(83, 189, 235, 0.15);
+      color: #53bdeb;
+      border: 1px solid rgba(83, 189, 235, 0.35);
+    }
+
+    .header-action-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #d1d7db;
+      font-family: inherit;
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 6px 12px;
+      border-radius: 20px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s ease;
+    }
+
+    .header-action-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    .header-action-btn.board-only-btn {
+      background: rgba(0, 168, 132, 0.15);
+      border-color: rgba(0, 168, 132, 0.35);
+      color: #00d26a;
+    }
+
+    .header-action-btn.board-only-btn:hover {
+      background: #00a884;
+      color: #fff;
+    }
+
+    .header-action-btn.logout-btn:hover {
+      background: rgba(241, 92, 109, 0.2);
+      border-color: rgba(241, 92, 109, 0.5);
+      color: #ff6b6b;
+    }
+
+    /* ===== LOGIN SCREEN STYLES ===== */
+    .login-screen-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at center, #111b21 0%, #080d10 100%);
+      opacity: 1;
+      visibility: visible;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+
+    .login-screen-modal.hidden {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
+
+    .login-backdrop {
+      position: absolute;
+      inset: 0;
+      background: url('whatsi.png') center/180px no-repeat;
+      opacity: 0.04;
+      filter: blur(2px);
+      pointer-events: none;
+    }
+
+    .login-card {
+      position: relative;
+      z-index: 2;
+      width: 420px;
+      max-width: 92vw;
+      background: rgba(17, 27, 33, 0.85);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(34, 45, 52, 0.9);
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7), 0 0 30px rgba(0, 168, 132, 0.12);
+      border-radius: 20px;
+      padding: 36px 32px;
+      text-align: center;
+      animation: modalIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .login-brand-header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .login-logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      box-shadow: 0 4px 20px rgba(0, 168, 132, 0.4);
+      margin-bottom: 12px;
+    }
+
+    .login-brand-header h2 {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #fff;
+      margin: 0;
+      letter-spacing: -0.5px;
+    }
+
+    .login-tag {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #00d26a;
+      background: rgba(0, 210, 106, 0.12);
+      border: 1px solid rgba(0, 210, 106, 0.25);
+      padding: 2px 10px;
+      border-radius: 20px;
+      margin-top: 6px;
+    }
+
+    .login-desc {
+      font-size: 0.84rem;
+      color: #8696a0;
+      margin: 10px 0 24px 0;
+      line-height: 1.5;
+    }
+
+    .login-field-group {
+      text-align: right;
+      margin-bottom: 18px;
+    }
+
+    .login-field-group label {
+      display: block;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #d1d7db;
+      margin-bottom: 7px;
+    }
+
+    .input-with-icon {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .input-with-icon .input-icon {
+      position: absolute;
+      right: 12px;
+      color: #8696a0;
+      font-size: 1rem;
+      pointer-events: none;
+    }
+
+    .input-with-icon input {
+      width: 100%;
+      background: #0b141a;
+      border: 1px solid #202c33;
+      border-radius: 10px;
+      color: #e9edef;
+      font-family: inherit;
+      font-size: 0.95rem;
+      padding: 12px 42px 12px 40px;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .input-with-icon input:focus {
+      border-color: #00a884;
+      box-shadow: 0 0 0 3px rgba(0, 168, 132, 0.25);
+      background: #111b21;
+    }
+
+    .password-toggle-btn {
+      position: absolute;
+      left: 10px;
+      background: none;
+      border: none;
+      color: #8696a0;
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 4px;
+      transition: color 0.2s;
+    }
+
+    .password-toggle-btn:hover {
+      color: #e9edef;
+    }
+
+    .login-btn-primary {
+      width: 100%;
+      background: linear-gradient(135deg, #00a884, #005c4b);
+      color: #fff;
+      border: none;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 800;
+      padding: 13px;
+      border-radius: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 10px;
+      box-shadow: 0 4px 14px rgba(0, 168, 132, 0.4);
+      transition: all 0.2s ease;
+    }
+
+    .login-btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 168, 132, 0.5);
+    }
+
+    .login-btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .login-error-msg {
+      background: rgba(241, 92, 109, 0.15);
+      border: 1px solid rgba(241, 92, 109, 0.4);
+      color: #ff6b6b;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.84rem;
+      font-weight: 600;
+      text-align: right;
+      margin-bottom: 18px;
+    }
+
+    .login-spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    /* ===== USERS MANAGEMENT MODAL STYLES ===== */
+    .users-management-content {
+      width: 780px !important;
+      max-width: 95vw !important;
+    }
+
+    .modal-title-with-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .users-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+      background: #111b21;
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid #202c33;
+    }
+
+    .users-table-wrapper {
+      border: 1px solid #202c33;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #111b21;
+    }
+
+    .users-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: right;
+      font-size: 0.88rem;
+    }
+
+    .users-table th {
+      background: #182229;
+      color: #8696a0;
+      padding: 12px 14px;
+      font-weight: 700;
+      font-size: 0.82rem;
+      border-bottom: 1px solid #202c33;
+    }
+
+    .users-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      color: #e9edef;
+      vertical-align: middle;
+    }
+
+    .users-table tr:hover td {
+      background: rgba(255,255,255,0.02);
+    }
+
+    .user-cell-profile {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .user-table-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: #202c33;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      color: #00d26a;
+      flex-shrink: 0;
+    }
+
+    .user-table-names {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .user-table-names strong {
+      font-size: 0.9rem;
+      color: #fff;
+    }
+
+    .user-table-names span {
+      font-size: 0.76rem;
+      color: #8696a0;
+    }
+
+    .account-tag-chip {
+      display: inline-block;
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: #182229;
+      border: 1px solid #2a3942;
+      color: #53bdeb;
+      margin: 2px;
+    }
+
+    .account-tag-all {
+      color: #00d26a;
+      border-color: rgba(0, 210, 106, 0.3);
+      background: rgba(0, 210, 106, 0.1);
+    }
+
+    .user-actions-cell {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .table-action-btn {
+      background: none;
+      border: 1px solid #2a3942;
+      color: #8696a0;
+      font-family: inherit;
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 5px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .table-action-btn:hover {
+      background: #202c33;
+      color: #e9edef;
+      border-color: #3b4a54;
+    }
+
+    .table-action-btn.btn-edit:hover {
+      color: #53bdeb;
+      border-color: #53bdeb;
+    }
+
+    .table-action-btn.btn-delete:hover {
+      color: #ff6b6b;
+      border-color: #ff6b6b;
+      background: rgba(241, 92, 109, 0.1);
+    }
+
+    /* ===== USER EDIT SUB-MODAL STYLES ===== */
+    .config-box-card {
+      background: #182229;
+      border: 1px solid #202c33;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-top: 14px;
+    }
+
+    .radio-option-row {
+      margin: 8px 0;
+    }
+
+    .radio-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.88rem;
+      color: #e9edef;
+      cursor: pointer;
+    }
+
+    .specific-accounts-selector {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #2a3942;
+    }
+
+    .selector-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .text-btn {
+      background: none;
+      border: none;
+      color: #00a884;
+      font-family: inherit;
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      padding: 0 4px;
+    }
+
+    .text-btn:hover {
+      text-decoration: underline;
+    }
+
+    .accounts-checklist-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 8px;
+      max-height: 180px;
+      overflow-y: auto;
+      padding: 4px;
+    }
+
+    .account-check-card {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #111b21;
+      border: 1px solid #202c33;
+      border-radius: 8px;
+      padding: 8px 10px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      transition: all 0.15s ease;
+    }
+
+    .account-check-card:hover {
+      border-color: #00a884;
+      background: #182229;
+    }
+
+    .account-check-card input[type="checkbox"] {
+      cursor: pointer;
+      accent-color: #00a884;
+    }
   </style>
 </head>
 <body>
@@ -1039,9 +1576,27 @@
       </button>
     </nav>
 
-    <div class="live-status-pill">
-      <span class="live-pulse-dot"></span>
-      <span id="sse-status-label">مزامنة لحظية نشطة (Live Sync)</span>
+    <!-- Header Actions (Live Status + User Profile) -->
+    <div class="header-right-actions">
+      <div class="live-status-pill">
+        <span class="live-pulse-dot"></span>
+        <span id="sse-status-label">مزامنة لحظية نشطة</span>
+      </div>
+
+      <!-- User Profile & Role Info -->
+      <div class="user-header-pill" id="user-header-pill" style="display: none;">
+        <div class="user-avatar-circle" id="user-avatar-initials">ز</div>
+        <div class="user-text-meta">
+          <span class="user-display-name" id="user-display-name">مستخدم</span>
+          <span class="role-badge" id="user-role-badge">الدور</span>
+        </div>
+        <button class="header-action-btn board-only-btn" id="header-btn-users" onclick="openUsersModal()" title="إدارة المستخدمين والصلاحيات">
+          <span>👥 إدارة المستخدمين</span>
+        </button>
+        <button class="header-action-btn logout-btn" onclick="handleLogout()" title="تسجيل الخروج">
+          <span>🚪 خروج</span>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -1460,6 +2015,168 @@
       <div class="modal-footer">
         <span id="messages-count-label" class="modal-footer-info">0 رسالة</span>
         <button class="modal-btn cancel" onclick="closeMessagesModal()">إغلاق</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== AUTH & USER MANAGEMENT MODALS ===== -->
+
+  <!-- 1. Login Modal / Screen -->
+  <div id="login-modal" class="login-screen-modal">
+    <div class="login-backdrop"></div>
+    <div class="login-card">
+      <div class="login-brand-header">
+        <img src="whatsi.png" alt="Whatsi Logo" class="login-logo" />
+        <h2>Whatsi Z-ray</h2>
+        <span class="login-tag">منظومة تدقيق المبيعات والرقابة</span>
+      </div>
+      <p class="login-desc">أدخل اسم المستخدم وكلمة السر للوصول إلى لوحة التحكم والمحادثات الحية والتقارير</p>
+
+      <form id="login-form" onsubmit="submitLoginForm(event)">
+        <div class="login-error-msg" id="login-error-msg" style="display: none;"></div>
+
+        <div class="login-field-group">
+          <label for="login-username">اسم المستخدم</label>
+          <div class="input-with-icon">
+            <span class="input-icon">👤</span>
+            <input type="text" id="login-username" placeholder="اسم المستخدم (مثال: zeyad)" autocomplete="username" required autofocus />
+          </div>
+        </div>
+
+        <div class="login-field-group">
+          <label for="login-password">كلمة السر</label>
+          <div class="input-with-icon">
+            <span class="input-icon">🔒</span>
+            <input type="password" id="login-password" placeholder="كلمة السر" autocomplete="current-password" required />
+            <button type="button" class="password-toggle-btn" onclick="togglePasswordVisibility('login-password')" title="إظهار / إخفاء">👁️</button>
+          </div>
+        </div>
+
+        <button type="submit" id="login-submit-btn" class="login-btn-primary">
+          <span id="login-btn-text">تسجيل الدخول</span>
+          <span id="login-btn-spinner" class="login-spinner" style="display: none;"></span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 2. User Management Modal (Board Member Only) -->
+  <div id="users-modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeUsersModal()"></div>
+    <div class="modal-content users-management-content">
+      <div class="modal-header">
+        <div class="modal-title-with-badge">
+          <h3>👥 إدارة المستخدمين وصلاحيات الحسابات</h3>
+          <span class="role-badge role-badge-board">مجلس الإدارة</span>
+        </div>
+        <button class="modal-close" onclick="closeUsersModal()">✕</button>
+      </div>
+      <div class="modal-body modal-scrollable">
+        <div class="users-toolbar">
+          <p class="modal-intro" style="margin: 0; font-size: 0.85rem;">أضف مديري المبيعات ومراقبي الجودة وحدد الحسابات المصرح لهم برؤيتها أو امنحهم صلاحية كاملة.</p>
+          <button class="action-btn refresh-btn" style="flex-shrink:0;" onclick="openAddUserModal()">➕ إضافة مستخدم جديد</button>
+        </div>
+
+        <div class="users-table-wrapper">
+          <table class="users-table">
+            <thead>
+              <tr>
+                <th>المستخدم</th>
+                <th>الدور والصلاحية</th>
+                <th>الحسابات المصرح بها</th>
+                <th>تاريخ الإنشاء</th>
+                <th>الإجراءات</th>
+              </tr>
+            </thead>
+            <tbody id="users-table-body">
+              <tr><td colspan="5" style="text-align:center; padding: 24px; color: #8696a0;">جاري تحميل المستخدمين...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn cancel" onclick="closeUsersModal()">إغلاق</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. Add/Edit User Sub-Modal -->
+  <div id="user-edit-modal" class="modal hidden">
+    <div class="modal-backdrop" onclick="closeUserEditModal()"></div>
+    <div class="modal-content modal-medium">
+      <div class="modal-header">
+        <h3 id="user-edit-modal-title">إضافة مستخدم جديد</h3>
+        <button class="modal-close" onclick="closeUserEditModal()">✕</button>
+      </div>
+      <div class="modal-body modal-scrollable">
+        <form id="user-edit-form" onsubmit="submitUserEditForm(event)">
+          <input type="hidden" id="user-edit-id" value="" />
+
+          <div style="margin-bottom: 14px;">
+            <label class="input-label" for="user-edit-username">اسم المستخدم (Username) *</label>
+            <input type="text" id="user-edit-username" class="modal-input" placeholder="مثال: ahmed_sales" required autocomplete="off" />
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label class="input-label" for="user-edit-name">الاسم المعروض (Display Name)</label>
+            <input type="text" id="user-edit-name" class="modal-input" placeholder="مثال: أحمد مصطفى" autocomplete="off" />
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label class="input-label" for="user-edit-password">كلمة السر *</label>
+            <input type="password" id="user-edit-password" class="modal-input" placeholder="كلمة السر (4 أحرف فأكثر)" autocomplete="new-password" />
+            <p class="input-hint" id="user-password-hint">عند تعديل مستخدم موجود، اترك هذا الحقل فارغاً للإبقاء على كلمة السر الحالية دون تغيير.</p>
+          </div>
+
+          <div style="margin-bottom: 14px;">
+            <label class="input-label" for="user-edit-role">الدور الوظيفي (Role) *</label>
+            <select id="user-edit-role" class="modal-input" onchange="handleUserRoleChange()">
+              <option value="SALES_MANAGER_QC">مدير مبيعات ومراقب جودة</option>
+              <option value="BOARD_MEMBER">عضو مجلس إدارة (كامل الصلاحيات)</option>
+            </select>
+          </div>
+
+          <!-- Sales Manager Accounts Configuration Area -->
+          <div id="sales-manager-config-box" class="config-box-card">
+            <label class="input-label">نطاق الحسابات المسموح برؤيتها:</label>
+            
+            <div class="radio-option-row">
+              <label class="radio-label">
+                <input type="radio" name="accounts-scope" id="scope-all" value="all" checked onchange="toggleScopeInputs()" />
+                <span><b>السماح برؤية كل شيء</b> (جميع خطوط السيلز والتقارير)</span>
+              </label>
+            </div>
+
+            <div class="radio-option-row">
+              <label class="radio-label">
+                <input type="radio" name="accounts-scope" id="scope-specific" value="specific" onchange="toggleScopeInputs()" />
+                <span><b>تحديد خطوط مبيعات معينة فقط</b></span>
+              </label>
+            </div>
+
+            <!-- Specific accounts checklist -->
+            <div id="specific-accounts-selector" class="specific-accounts-selector" style="display: none;">
+              <div class="selector-header">
+                <span style="font-size: 0.8rem; color: #8696a0;">اختر خطوط السيلز المصرح بها:</span>
+                <div class="selector-actions">
+                  <button type="button" class="text-btn" onclick="toggleAllUserAccounts(true)">تحديد الكل</button>
+                  <span style="color:#54656f;">·</span>
+                  <button type="button" class="text-btn" onclick="toggleAllUserAccounts(false)">إلغاء التحديد</button>
+                </div>
+              </div>
+              <div class="accounts-checklist-grid" id="accounts-checklist-grid">
+                <!-- Dynamically populated checkboxes -->
+              </div>
+            </div>
+          </div>
+
+          <div id="user-edit-error" class="login-error-msg" style="display: none; margin-top: 14px;"></div>
+
+          <div class="modal-footer" style="padding: 16px 0 0 0; margin-top: 16px;">
+            <button type="button" class="modal-btn cancel" onclick="closeUserEditModal()">إلغاء</button>
+            <button type="submit" id="save-user-btn" class="modal-btn save">حفظ المستخدم</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
