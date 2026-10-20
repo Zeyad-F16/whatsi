@@ -541,6 +541,7 @@ async function init() {
   await refreshLiveData();
   await loadMonthlyScores();
   connectSSE();
+  startPeriodicSync();
 }
 
 // ===== 1. Tab Switching =====
@@ -1283,6 +1284,8 @@ function scrollToBottom() {
 }
 
 // ===== 5. Server-Sent Events (SSE) Realtime Stream =====
+let sseWasConnected = false; // لمعرفة ما إذا كان reconnect أو connect جديد
+
 function connectSSE() {
   const statusLabel = document.getElementById('sse-status-label');
 
@@ -1297,6 +1300,16 @@ function connectSSE() {
 
   sseConnection.onopen = () => {
     if (statusLabel) statusLabel.textContent = 'مزامنة لحظية متصلة (Live Sync)';
+    if (sseWasConnected) {
+      // ⚠️ Reconnect بعد انقطاع: نعيد جلب البيانات كاملةً لضمان عدم ضياع أي رسائل خلال فترة الانقطاع
+      console.log('[SSE] Reconnected – resyncing data...');
+      loadChatsList();
+      refreshRailUnreadCounters();
+      if (currentMainTab === 'dashboard') {
+        refreshLiveData();
+      }
+    }
+    sseWasConnected = true;
   };
 
   sseConnection.onmessage = (event) => {
@@ -1318,6 +1331,28 @@ function connectSSE() {
     if (statusLabel) statusLabel.textContent = 'إعادة الاتصال بالبث...';
     // EventSource handles reconnection automatically
   };
+}
+
+// ===== Periodic Sync Fallback (بديل المزامنة إذا انقطعت SSE) =====
+function startPeriodicSync() {
+  // مزامنة دورية كل 90 ثانية للتأكد من صحة البيانات
+  setInterval(async () => {
+    try {
+      // تحديث عدادات الرسائل غير المقروءة دائماً
+      await refreshRailUnreadCounters();
+
+      // إعادة جلب قائمة الشاتات إذا كانت SSE منقطعة
+      if (!sseConnection || sseConnection.readyState === EventSource.CLOSED) {
+        console.log('[PeriodicSync] SSE is closed, reloading chats...');
+        await loadChatsList();
+        if (currentMainTab === 'dashboard') {
+          await refreshLiveData();
+        }
+      }
+    } catch (e) {
+      console.warn('[PeriodicSync] error:', e);
+    }
+  }, 90_000);
 }
 
 let countersRefreshTimer = null;
@@ -1447,9 +1482,12 @@ function updateChatSidebarOnEvent(event) {
       const chat = chats.find(c => c.chatId === event.chatId);
       if (chat) chat.unreadCount = 0;
     } else {
-      // رسالة واردة جديدة من العميل: زيادة عداد الـ Unread الخاص بالسيلز
-      const currentCount = parseInt(badgeEl?.textContent || '0', 10) || 0;
+      // رسالة واردة جديدة من العميل: زيادة العداد اعتماداً على الـ chats array وليس DOM
+      const chat = chats.find(c => c.chatId === event.chatId);
+      const currentCount = chat ? (Number(chat.unreadCount) || 0) : 0;
       const newCount = currentCount + 1;
+      if (chat) chat.unreadCount = newCount;
+
       if (badgeEl) {
         badgeEl.textContent = newCount;
         badgeEl.style.display = 'inline-flex';
@@ -1457,9 +1495,6 @@ function updateChatSidebarOnEvent(event) {
       if (timeEl) timeEl.classList.add('unread');
       if (nameEl) nameEl.style.fontWeight = '700';
       snippet.style.color = '#e9edef';
-
-      const chat = chats.find(c => c.chatId === event.chatId);
-      if (chat) chat.unreadCount = newCount;
     }
 
     scheduleCountersRefresh();

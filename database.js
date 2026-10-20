@@ -113,6 +113,11 @@ async function initialize() {
   await p.$executeRaw(Prisma.sql`CREATE INDEX IF NOT EXISTS idx_customer_profiles_phone ON customer_profiles (customer_phone)`);
   await p.$executeRaw(Prisma.sql`CREATE INDEX IF NOT EXISTS idx_customer_profiles_updated_at ON customer_profiles (updated_at)`);
 
+  // Indexes لتسريع استعلامات حساب الـ unread_count الفعلي
+  await p.$executeRaw(Prisma.sql`CREATE INDEX IF NOT EXISTS idx_messages_chat_sender_time ON messages (chat_id, sender, timestamp DESC)`);
+  await p.$executeRaw(Prisma.sql`CREATE INDEX IF NOT EXISTS idx_audio_chat_sender_time ON audio_messages (chat_id, sender, timestamp DESC)`);
+  await p.$executeRaw(Prisma.sql`CREATE INDEX IF NOT EXISTS idx_sales_chat_seen_chat ON sales_chat_seen (chat_id, seen_at DESC)`);
+
   await backfillCustomerContactHistory();
   console.log('[Database] PostgreSQL connected via Prisma; schema is ready.');
 }

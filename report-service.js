@@ -742,14 +742,31 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
       FROM audio_messages
       WHERE ${retentionClause} ${accountClause} ${searchClauseAudio}
     ),
-    chat_sales AS (
+    chat_seen AS (
+      -- آخر seen_at وآخر رد sales لكل محادثة
       SELECT
         c.chat_id,
         MAX(CASE WHEN c.sender = 'sales' THEN c.timestamp ELSE NULL END) AS last_sales_time,
-        MAX(scs.seen_at) AS last_seen_at,
-        MAX(scs.unread_count) AS reported_unread
+        MAX(scs.seen_at) AS last_seen_at
       FROM combined c
       LEFT JOIN sales_chat_seen scs ON (scs.chat_id = c.chat_id AND (scs.account_id = c.account_id OR scs.account_id = c.account_name))
+      GROUP BY c.chat_id
+    ),
+    chat_unread_calc AS (
+      -- حساب عدد رسائل العميل بعد آخر رد Sales أو آخر seen_at (أيهما أحدث)
+      SELECT
+        c.chat_id,
+        COUNT(*) FILTER (
+          WHERE c.sender = 'customer'
+          AND c.timestamp > COALESCE(
+            GREATEST(cs.last_sales_time, cs.last_seen_at),
+            cs.last_sales_time,
+            cs.last_seen_at,
+            '1970-01-01'::timestamptz
+          )
+        ) AS real_unread_count
+      FROM combined c
+      JOIN chat_seen cs ON c.chat_id = cs.chat_id
       GROUP BY c.chat_id
     ),
     ranked AS (
@@ -757,14 +774,9 @@ async function getChatsList({ accountId = null, search = '', limit = 100, offset
         c.chat_id, c.customer_name, c.customer_phone, c.account_id, c.account_name, c.text, c.sender, c.timestamp, c.msg_type,
         ROW_NUMBER() OVER (PARTITION BY c.chat_id ORDER BY c.timestamp DESC) AS rn,
         COUNT(*) OVER (PARTITION BY c.chat_id) AS total_count,
-        CASE
-          WHEN c.sender = 'sales' THEN 0
-          WHEN cs.last_seen_at IS NOT NULL AND cs.last_seen_at >= c.timestamp THEN 0
-          WHEN cs.reported_unread IS NOT NULL AND cs.reported_unread > 0 THEN cs.reported_unread
-          ELSE 1
-        END AS unread_count
+        COALESCE(cu.real_unread_count, 0) AS unread_count
       FROM combined c
-      JOIN chat_sales cs ON c.chat_id = cs.chat_id
+      JOIN chat_unread_calc cu ON c.chat_id = cu.chat_id
     )
     SELECT
       chat_id, customer_name, customer_phone, account_id, account_name,
@@ -1010,32 +1022,41 @@ async function getUnreadCounts(allowedAccountIds = null) {
         SELECT id, chat_id, customer_phone, account_id, account_name, sender, timestamp
         FROM audio_messages WHERE chat_id IS NOT NULL
       ),
-      chat_sales AS (
+      chat_seen AS (
+        -- آخر seen_at وآخر رد sales لكل محادثة
         SELECT
           c.chat_id,
+          c.account_id,
+          c.account_name,
           MAX(CASE WHEN c.sender = 'sales' THEN c.timestamp ELSE NULL END) AS last_sales_time,
-          MAX(scs.seen_at) AS last_seen_at,
-          MAX(scs.unread_count) AS reported_unread
+          MAX(scs.seen_at) AS last_seen_at
         FROM combined c
         LEFT JOIN sales_chat_seen scs ON (scs.chat_id = c.chat_id AND (scs.account_id = c.account_id OR scs.account_id = c.account_name))
-        GROUP BY c.chat_id
+        GROUP BY c.chat_id, c.account_id, c.account_name
       ),
-      ranked AS (
+      chat_unread_calc AS (
+        -- حساب العدد الفعلي لرسائل العميل بعد آخر رد Sales أو seen_at
         SELECT
-          c.chat_id, c.customer_phone, c.account_id, c.account_name, c.sender, c.timestamp,
-          ROW_NUMBER() OVER (PARTITION BY c.chat_id ORDER BY c.timestamp DESC) AS rn,
-          CASE
-            WHEN c.sender = 'sales' THEN 0
-            WHEN cs.last_seen_at IS NOT NULL AND cs.last_seen_at >= c.timestamp THEN 0
-            WHEN cs.reported_unread IS NOT NULL AND cs.reported_unread > 0 THEN cs.reported_unread
-            ELSE 1
-          END AS unread_count
+          c.chat_id,
+          cs.account_id,
+          cs.account_name,
+          MIN(c.customer_phone) AS customer_phone,
+          COUNT(*) FILTER (
+            WHERE c.sender = 'customer'
+            AND c.timestamp > COALESCE(
+              GREATEST(cs.last_sales_time, cs.last_seen_at),
+              cs.last_sales_time,
+              cs.last_seen_at,
+              '1970-01-01'::timestamptz
+            )
+          ) AS unread_count
         FROM combined c
-        JOIN chat_sales cs ON c.chat_id = cs.chat_id
+        JOIN chat_seen cs ON c.chat_id = cs.chat_id AND c.account_id = cs.account_id
+        GROUP BY c.chat_id, cs.account_id, cs.account_name
       )
       SELECT chat_id, customer_phone, account_id, account_name, unread_count
-      FROM ranked
-      WHERE rn = 1 AND unread_count > 0
+      FROM chat_unread_calc
+      WHERE unread_count > 0
     `);
     const filteredRows = rows.filter(r => {
       if (allowedAccountIds && Array.isArray(allowedAccountIds)) {
