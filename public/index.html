@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Whatsi Z-ray | منظومة المحادثات الحية وتدقيق المبيعات</title>
+  <title>Whatsi Z-ray | لوحة التقارير والتدقيق (AI Dashboard)</title>
   <link rel="icon" type="image/png" href="whatsi.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <style>
-    /* Styling for Dual-View (WhatsApp Web + AI Dashboard) */
+    /* Global Page Styling */
     body {
       background: #0c1317;
       color: #e9edef;
@@ -23,11 +23,11 @@
       overflow: hidden;
     }
 
-    /* Top Global Navigation Bar */
+    /* Top Global Header */
     .top-app-header {
       background: #111b21;
       border-bottom: 1px solid #202c33;
-      padding: 10px 20px;
+      padding: 10px 24px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -42,8 +42,8 @@
     }
 
     .app-brand-logo {
-      width: 38px;
-      height: 38px;
+      width: 40px;
+      height: 40px;
       border-radius: 10px;
       object-fit: cover;
     }
@@ -58,40 +58,17 @@
       gap: 8px;
     }
 
-    .app-nav-tabs {
-      display: flex;
-      gap: 8px;
-      background: #0b141a;
-      padding: 4px;
-      border-radius: 10px;
-      border: 1px solid #222d34;
-    }
-
-    .app-nav-btn {
-      background: none;
-      border: none;
-      color: #8696a0;
-      font-family: inherit;
-      font-size: 0.9rem;
+    .header-badge-tag {
+      font-size: 0.8rem;
       font-weight: 700;
-      padding: 8px 18px;
-      border-radius: 8px;
-      cursor: pointer;
-      display: flex;
+      padding: 4px 14px;
+      border-radius: 20px;
+      background: rgba(0, 168, 132, 0.12);
+      color: #00d26a;
+      border: 1px solid rgba(0, 168, 132, 0.3);
+      display: inline-flex;
       align-items: center;
-      gap: 8px;
-      transition: all 0.2s ease;
-    }
-
-    .app-nav-btn:hover {
-      color: #e9edef;
-      background: rgba(255, 255, 255, 0.05);
-    }
-
-    .app-nav-btn.active {
-      background: #00a884;
-      color: #fff;
-      box-shadow: 0 2px 8px rgba(0, 168, 132, 0.3);
+      gap: 6px;
     }
 
     .live-status-pill {
@@ -101,7 +78,7 @@
       font-size: 0.78rem;
       color: #00d26a;
       background: rgba(0, 210, 106, 0.1);
-      padding: 4px 10px;
+      padding: 5px 12px;
       border-radius: 20px;
       border: 1px solid rgba(0, 210, 106, 0.25);
     }
@@ -126,836 +103,22 @@
       flex: 1;
       position: relative;
       overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
     .viewport-view {
       position: absolute;
       inset: 0;
-      display: none;
-      flex-direction: column;
-    }
-
-    .viewport-view.active {
-      display: flex;
-    }
-
-    /* ===== 1. LIVE WHATSAPP VIEW STYLES ===== */
-    .whatsapp-full-container {
-      display: flex;
-      height: 100%;
-      background: #111b21;
-    }
-
-    /* ─── 1. Vertical Sales Accounts Rail (عمود السيلز الرأسي) ─── */
-    .wa-accounts-rail {
-      width: 72px;
-      min-width: 72px;
-      height: 100%;
-      background: #111b21;
-      border-left: 1px solid #202c33;
       display: flex;
       flex-direction: column;
-      align-items: center;
-      padding: 10px 0 8px 0;
-      box-sizing: border-box;
-      user-select: none;
-      z-index: 20;
-      flex-shrink: 0;
     }
 
-    .wa-rail-item {
-      width: 100%;
-      background: none;
-      border: none;
-      padding: 6px 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 3px;
-      cursor: pointer;
-      position: relative;
-      transition: all 0.2s ease;
-      outline: none;
-    }
-
-    .wa-rail-avatar {
-      width: 44px;
-      height: 44px;
-      border-radius: 50%;
-      background: #202c33;
-      color: #e9edef;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 700;
-      font-size: 1.05rem;
-      position: relative;
-      transition: all 0.2s ease;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-    }
-
-    .wa-rail-all-avatar {
-      background: linear-gradient(135deg, #00a884, #005c4b);
-      color: #fff;
-    }
-
-    .wa-rail-tool-avatar {
-      background: #182229;
-      font-size: 1.15rem;
-    }
-
-    .wa-rail-item:hover .wa-rail-avatar {
-      transform: scale(1.08);
-      box-shadow: 0 2px 8px rgba(0, 168, 132, 0.4);
-    }
-
-    .wa-rail-label {
-      font-size: 0.68rem;
-      color: #8696a0;
-      font-weight: 500;
-      max-width: 62px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      text-align: center;
-      transition: color 0.2s;
-    }
-
-    .wa-rail-item.active .wa-rail-label {
-      color: #00a884;
-      font-weight: 700;
-    }
-
-    .wa-rail-item.active .wa-rail-avatar {
-      box-shadow: 0 0 0 2.5px #00a884;
-      transform: scale(1.05);
-    }
-
-    /* Active vertical indicator bar on outer right edge */
-    .wa-rail-item::after {
-      content: '';
-      position: absolute;
-      right: 0;
-      top: 50%;
-      transform: translateY(-50%) scaleY(0);
-      width: 4px;
-      height: 28px;
-      background: #00a884;
-      border-radius: 4px 0 0 4px;
-      transition: transform 0.2s ease;
-    }
-
-    .wa-rail-item.active::after {
-      transform: translateY(-50%) scaleY(1);
-    }
-
-    .wa-rail-badge {
-      position: absolute;
-      top: -2px;
-      left: 0px;
-      background: #00a884;
-      color: #111b21;
-      font-size: 0.65rem;
-      font-weight: 800;
-      min-width: 17px;
-      height: 17px;
-      line-height: 17px;
-      border-radius: 9px;
-      padding: 0 4px;
-      text-align: center;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.5);
-    }
-
-    .wa-rail-divider {
-      width: 38px;
-      height: 1px;
-      background: #202c33;
-      margin: 8px 0;
-      flex-shrink: 0;
-    }
-
-    .wa-rail-list-scroll {
-      flex: 1;
-      width: 100%;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .wa-rail-list-scroll::-webkit-scrollbar {
-      display: none;
-    }
-
-    .wa-rail-footer {
-      width: 100%;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 6px;
-      padding-top: 8px;
-      border-top: 1px solid #202c33;
-      flex-shrink: 0;
-    }
-
-    /* ─── 2. Sidebar Chats List ─── */
-    .wa-chats-sidebar {
-      width: 380px;
-      background: #111b21;
-      border-left: 1px solid #202c33;
-      display: flex;
-      flex-direction: column;
-      flex-shrink: 0;
-    }
-
-    .wa-sidebar-header {
-      padding: 12px 16px 8px 16px;
-      background: #111b21;
-      border-bottom: 1px solid #202c33;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .wa-sidebar-title-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .wa-sidebar-user-pill {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .wa-user-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #00a884;
-      display: inline-block;
-      box-shadow: 0 0 6px #00a884;
-    }
-
-    .wa-icon-btn {
-      background: none;
-      border: none;
-      color: #aebac1;
-      font-size: 1rem;
-      cursor: pointer;
-      padding: 6px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: background 0.15s, color 0.15s;
-    }
-
-    .wa-icon-btn:hover {
-      background: rgba(255, 255, 255, 0.08);
-      color: #e9edef;
-    }
-
-    .wa-search-box {
-      display: flex;
-      align-items: center;
-      background: #202c33;
-      border-radius: 8px;
-      padding: 7px 12px;
-      gap: 10px;
-      border: none;
-    }
-
-    .wa-search-input {
-      background: none;
-      border: none;
-      color: #e9edef;
-      font-family: inherit;
-      font-size: 0.88rem;
-      width: 100%;
-      outline: none;
-    }
-
-    .wa-filter-chips {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 2px 0 2px 0;
-    }
-
-    .wa-chip {
-      background: #202c33;
-      color: #8696a0;
-      border: none;
-      border-radius: 16px;
-      padding: 5px 12px;
-      font-size: 0.78rem;
-      font-weight: 600;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      transition: all 0.2s ease;
-    }
-
-    .wa-chip:hover {
-      background: #2a3942;
-      color: #e9edef;
-    }
-
-    .wa-chip.active {
-      background: #005c4b;
-      color: #00a884;
-    }
-
-    .wa-chip-badge {
-      background: #00a884;
-      color: #111b21;
-      font-size: 0.65rem;
-      font-weight: 800;
-      padding: 1px 6px;
-      border-radius: 10px;
-    }
-
-    .wa-chat-list-scroll {
-      flex: 1;
-      overflow-y: auto;
-    }
-
-    .wa-chat-item {
-      display: flex;
-      align-items: center;
-      padding: 12px 16px;
-      gap: 12px;
-      cursor: pointer;
-      border-bottom: 1px solid #1f2c34;
-      transition: background 0.15s ease;
-      position: relative;
-    }
-
-    .wa-chat-item:hover {
-      background: #202c33;
-    }
-
-    .wa-chat-item.active {
-      background: #2a3942;
-    }
-
-    .wa-chat-avatar {
-      width: 46px;
-      height: 46px;
-      border-radius: 50%;
-      background: linear-gradient(135deg, #00a884, #005c4b);
-      color: #fff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 700;
-      font-size: 1.05rem;
-      flex-shrink: 0;
-    }
-
-    .wa-chat-info {
-      flex: 1;
-      min-width: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-    }
-
-    .wa-chat-top-line {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .wa-chat-name {
-      font-weight: 600;
-      color: #e9edef;
-      font-size: 0.95rem;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .wa-chat-time {
-      font-size: 0.72rem;
-      color: #8696a0;
-      flex-shrink: 0;
-    }
-
-    .wa-chat-bottom-line {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 0.82rem;
-      color: #8696a0;
-    }
-
-    .wa-chat-snippet {
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      flex: 1;
-    }
-
-    .wa-chat-badge {
-      background: #00a884;
-      color: #111b21;
-      font-size: 0.72rem;
-      font-weight: 800;
-      min-width: 20px;
-      height: 20px;
-      line-height: 20px;
-      border-radius: 10px;
-      padding: 0 5px;
-      text-align: center;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-      flex-shrink: 0;
-    }
-
-    .wa-chat-time.unread {
-      color: #00a884 !important;
-      font-weight: 700;
-    }
-
-    /* Active Conversation Panel */
-    .wa-conversation-panel {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      background: #0b141a;
-      position: relative;
-    }
-
-    /* WhatsApp Doodle Background Pattern simulation */
-    .wa-conversation-panel::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background-image: radial-gradient(#182229 1px, transparent 1px);
-      background-size: 20px 20px;
-      opacity: 0.4;
-      pointer-events: none;
-    }
-
-    .wa-chat-header {
-      background: #202c33;
-      padding: 10px 20px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 1px solid #2a3942;
-      z-index: 10;
-    }
-
-    .wa-header-user {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .wa-header-details h3 {
-      margin: 0;
-      font-size: 1rem;
-      color: #e9edef;
-    }
-
-    .wa-header-details p {
-      margin: 2px 0 0 0;
-      font-size: 0.78rem;
-      color: #8696a0;
-    }
-
-    /* Permanent Student Dossier Brief Card */
-    .wa-brief-card {
-      background: linear-gradient(180deg, #182229 0%, #111b21 100%);
-      border-bottom: 1px solid rgba(0, 168, 132, 0.3);
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-      z-index: 9;
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .wa-brief-card-header {
-      padding: 9px 18px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      cursor: pointer;
-      user-select: none;
-      background: rgba(0, 168, 132, 0.06);
-      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-      transition: background 0.2s;
-    }
-
-    .wa-brief-card-header:hover {
-      background: rgba(0, 168, 132, 0.12);
-    }
-
-    .wa-brief-header-title {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .wa-brief-icon {
-      font-size: 1.15rem;
-    }
-
-    .wa-brief-title-text {
-      font-size: 0.86rem;
-      font-weight: 700;
-      color: #e9edef;
-      letter-spacing: 0.2px;
-    }
-
-    .wa-brief-badge {
-      font-size: 0.7rem;
-      font-weight: 700;
-      padding: 2px 8px;
-      border-radius: 12px;
-      background: rgba(0, 168, 132, 0.2);
-      color: #00d26a;
-      border: 1px solid rgba(0, 168, 132, 0.4);
-    }
-
-    .wa-brief-actions {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .wa-brief-updated-at {
-      font-size: 0.72rem;
-      color: #8696a0;
-    }
-
-    .wa-brief-btn {
-      background: linear-gradient(135deg, #00a884, #007a60);
-      color: #fff;
-      border: none;
-      border-radius: 6px;
-      padding: 5px 12px;
-      font-size: 0.78rem;
-      font-weight: 700;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      transition: all 0.2s;
-      box-shadow: 0 2px 6px rgba(0, 168, 132, 0.3);
-    }
-
-    .wa-brief-btn:hover {
-      background: linear-gradient(135deg, #00c298, #008f70);
-      transform: translateY(-1px);
-    }
-
-    .wa-brief-btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    .wa-brief-toggle-btn {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      color: #8696a0;
-      border-radius: 50%;
-      width: 26px;
-      height: 26px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.7rem;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .wa-brief-toggle-btn:hover {
-      background: rgba(255, 255, 255, 0.12);
-      color: #e9edef;
-    }
-
-    .wa-brief-body {
-      max-height: 240px;
-      overflow-y: auto;
-      padding: 12px 18px 14px 18px;
-      transition: max-height 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
-    }
-
-    .wa-brief-card.collapsed .wa-brief-body {
-      max-height: 0;
-      padding-top: 0;
-      padding-bottom: 0;
-      opacity: 0;
-      overflow: hidden;
-    }
-
-    .wa-brief-content {
-      font-size: 0.84rem;
-      line-height: 1.6;
-      color: #d1d7db;
-      white-space: pre-wrap;
-      direction: rtl;
-    }
-
-    .wa-brief-content strong {
-      color: #00d26a;
-    }
-
-    .wa-brief-item-row {
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      margin-bottom: 6px;
-      padding: 6px 10px;
-      background: rgba(255, 255, 255, 0.03);
-      border-radius: 6px;
-      border-right: 3px solid #00a884;
-    }
-
-    .wa-brief-empty-state {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      background: rgba(255, 255, 255, 0.02);
-      padding: 10px 14px;
-      border-radius: 6px;
-      font-size: 0.82rem;
-      color: #8696a0;
-    }
-
-    .wa-chat-messages-scroll {
-      flex: 1;
-      overflow-y: auto;
-      padding: 20px 30px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      z-index: 5;
-    }
-
-    /* Load Older Messages Button & Header */
-    .wa-load-more-container {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 6px 0 14px 0;
-      width: 100%;
-    }
-
-    .wa-load-more-btn {
-      background: rgba(32, 44, 51, 0.95);
-      color: #00a884;
-      border: 1px solid rgba(0, 168, 132, 0.4);
-      border-radius: 20px;
-      padding: 8px 24px;
-      font-size: 0.85rem;
-      font-weight: 700;
-      font-family: inherit;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      transition: all 0.22s ease;
-      backdrop-filter: blur(8px);
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-    }
-
-    .wa-load-more-btn:hover {
-      background: #00a884;
-      color: #111b21;
-      border-color: #00a884;
-      transform: translateY(-2px);
-      box-shadow: 0 5px 15px rgba(0, 168, 132, 0.35);
-    }
-
-    .wa-load-more-btn:active {
-      transform: translateY(0);
-    }
-
-    .wa-load-more-btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      transform: none;
-      box-shadow: none;
-    }
-
-    .wa-chat-beginning-tag {
-      font-size: 0.78rem;
-      color: #8696a0;
-      background: rgba(255, 255, 255, 0.04);
-      padding: 6px 16px;
-      border-radius: 14px;
-      border: 1px dashed rgba(134, 150, 160, 0.25);
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      user-select: none;
-    }
-
-    /* Chat Bubbles */
-    .wa-msg-bubble {
-      max-width: 65%;
-      padding: 8px 12px 6px 12px;
-      border-radius: 8px;
-      font-size: 0.92rem;
-      line-height: 1.45;
-      position: relative;
-      word-break: break-word;
-      display: flex;
-      flex-direction: column;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.3);
-    }
-
-    .wa-msg-bubble.sales {
-      align-self: flex-start;
-      background: #005c4b;
-      color: #e9edef;
-      border-top-right-radius: 0;
-    }
-
-    .wa-msg-bubble.customer {
-      align-self: flex-end;
-      background: #202c33;
-      color: #e9edef;
-      border-top-left-radius: 0;
-    }
-
-    .wa-msg-sender-tag {
-      font-size: 0.72rem;
-      font-weight: 700;
-      margin-bottom: 3px;
-    }
-
-    .wa-msg-bubble.sales .wa-msg-sender-tag { color: #53bdeb; }
-    .wa-msg-bubble.customer .wa-msg-sender-tag { color: #00a884; }
-
-    .wa-msg-text {
-      margin: 0;
-      white-space: pre-wrap;
-    }
-
-    .wa-msg-footer {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      gap: 4px;
-      font-size: 0.68rem;
-      color: rgba(233, 237, 239, 0.6);
-      margin-top: 4px;
-    }
-
-    /* Audio Voice Note Bubble */
-    .wa-audio-card {
-      background: rgba(0, 0, 0, 0.2);
-      border-radius: 8px;
-      padding: 8px;
-      margin-top: 4px;
-      border-right: 3px solid #00a884;
-    }
-
-    .wa-audio-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.8rem;
-      font-weight: 700;
-      color: #00d26a;
-    }
-
-    .wa-audio-transcript {
-      font-size: 0.86rem;
-      color: #e9edef;
-      background: rgba(255, 255, 255, 0.04);
-      padding: 6px 10px;
-      border-radius: 6px;
-      margin: 6px 0;
-      white-space: pre-wrap;
-      direction: auto;
-    }
-
-    .wa-audio-tone-badge {
-      font-size: 0.72rem;
-      padding: 2px 6px;
-      border-radius: 4px;
-      background: rgba(83, 189, 235, 0.15);
-      color: #53bdeb;
-      display: inline-block;
-    }
-    .wa-chat-footer-simulated {
-      background: #202c33;
-      padding: 8px 16px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      border-top: 1px solid #202c33;
-      z-index: 10;
-    }
-
-    .wa-footer-icon-btn {
-      background: none;
-      border: none;
-      color: #8696a0;
-      font-size: 1.25rem;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 4px;
-      transition: color 0.2s;
-    }
-
-    .wa-footer-icon-btn:hover {
-      color: #e9edef;
-    }
-
-    .wa-footer-input-simulated {
-      flex: 1;
-      background: #2a3942;
-      border-radius: 8px;
-      padding: 8px 14px;
-      display: flex;
-      align-items: center;
-      direction: rtl;
-    }
-
-    .wa-footer-placeholder {
-      font-size: 0.84rem;
-      color: #8696a0;
-      user-select: none;
-    }
-
-    .wa-empty-chat-state {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      color: #8696a0;
-      gap: 12px;
-      z-index: 5;
-    }
-
-    .wa-empty-chat-state h3 {
-      color: #e9edef;
-      margin: 0;
-    }
-
-    /* ===== 2. AI DASHBOARD VIEW STYLES ===== */
+    /* ===== AI DASHBOARD VIEW STYLES ===== */
     .web-dashboard-scroll {
       flex: 1;
       overflow-y: auto;
-      padding: 20px 24px 60px 24px;
+      padding: 20px 28px 60px 28px;
     }
 
     .web-kpi-grid {
@@ -1104,114 +267,101 @@
     .header-action-btn:hover {
       background: rgba(255, 255, 255, 0.12);
       color: #fff;
-      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    .header-action-btn.logout-btn:hover {
+      background: rgba(241, 92, 109, 0.18);
+      border-color: rgba(241, 92, 109, 0.4);
+      color: #ff6b6b;
     }
 
     .header-action-btn.board-only-btn {
-      background: rgba(0, 168, 132, 0.15);
-      border-color: rgba(0, 168, 132, 0.35);
+      background: rgba(0, 168, 132, 0.12);
+      border-color: rgba(0, 168, 132, 0.3);
       color: #00d26a;
     }
 
     .header-action-btn.board-only-btn:hover {
       background: #00a884;
-      color: #fff;
+      color: #111b21;
     }
 
-    .header-action-btn.logout-btn:hover {
-      background: rgba(241, 92, 109, 0.2);
-      border-color: rgba(241, 92, 109, 0.5);
-      color: #ff6b6b;
-    }
-
-    /* ===== LOGIN SCREEN STYLES ===== */
+    /* Modal User Styles & Form Controls */
     .login-screen-modal {
       position: fixed;
       inset: 0;
-      z-index: 99999;
+      z-index: 10000;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: radial-gradient(circle at center, #111b21 0%, #080d10 100%);
-      opacity: 1;
-      visibility: visible;
-      transition: opacity 0.3s ease, visibility 0.3s ease;
     }
 
     .login-screen-modal.hidden {
-      opacity: 0 !important;
-      visibility: hidden !important;
-      pointer-events: none !important;
+      display: none;
     }
 
     .login-backdrop {
       position: absolute;
       inset: 0;
-      background: url('whatsi.png') center/180px no-repeat;
-      opacity: 0.04;
-      filter: blur(2px);
-      pointer-events: none;
+      background: rgba(11, 20, 26, 0.95);
+      backdrop-filter: blur(12px);
     }
 
     .login-card {
       position: relative;
-      z-index: 2;
-      width: 420px;
-      max-width: 92vw;
-      background: rgba(17, 27, 33, 0.85);
-      backdrop-filter: blur(16px);
-      border: 1px solid rgba(34, 45, 52, 0.9);
-      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7), 0 0 30px rgba(0, 168, 132, 0.12);
-      border-radius: 20px;
-      padding: 36px 32px;
-      text-align: center;
-      animation: modalIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+      width: 100%;
+      max-width: 420px;
+      background: #111b21;
+      border: 1px solid #222d34;
+      border-radius: 18px;
+      padding: 32px 28px;
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+      z-index: 10;
+      animation: popIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    @keyframes popIn {
+      0% { opacity: 0; transform: scale(0.95); }
+      100% { opacity: 1; transform: scale(1); }
     }
 
     .login-brand-header {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      margin-bottom: 8px;
+      text-align: center;
+      margin-bottom: 20px;
     }
 
     .login-logo {
-      width: 64px;
-      height: 64px;
-      border-radius: 16px;
-      box-shadow: 0 4px 20px rgba(0, 168, 132, 0.4);
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
       margin-bottom: 12px;
     }
 
     .login-brand-header h2 {
-      font-size: 1.5rem;
+      margin: 0;
+      font-size: 1.4rem;
       font-weight: 800;
       color: #fff;
-      margin: 0;
-      letter-spacing: -0.5px;
     }
 
     .login-tag {
-      font-size: 0.72rem;
-      font-weight: 700;
+      font-size: 0.78rem;
       color: #00d26a;
-      background: rgba(0, 210, 106, 0.12);
-      border: 1px solid rgba(0, 210, 106, 0.25);
-      padding: 2px 10px;
-      border-radius: 20px;
-      margin-top: 6px;
+      display: block;
+      margin-top: 4px;
+      font-weight: 600;
     }
 
     .login-desc {
-      font-size: 0.84rem;
+      font-size: 0.85rem;
       color: #8696a0;
-      margin: 10px 0 24px 0;
+      text-align: center;
+      margin-bottom: 22px;
       line-height: 1.5;
     }
 
     .login-field-group {
-      text-align: right;
-      margin-bottom: 18px;
+      margin-bottom: 16px;
     }
 
     .login-field-group label {
@@ -1219,45 +369,42 @@
       font-size: 0.82rem;
       font-weight: 700;
       color: #d1d7db;
-      margin-bottom: 7px;
+      margin-bottom: 6px;
     }
 
     .input-with-icon {
       position: relative;
       display: flex;
       align-items: center;
+      background: #202c33;
+      border: 1px solid #2a3942;
+      border-radius: 10px;
+      padding: 0 12px;
+      transition: border-color 0.2s;
     }
 
-    .input-with-icon .input-icon {
-      position: absolute;
-      right: 12px;
-      color: #8696a0;
+    .input-with-icon:focus-within {
+      border-color: #00a884;
+    }
+
+    .input-icon {
       font-size: 1rem;
-      pointer-events: none;
+      margin-left: 8px;
+      color: #8696a0;
     }
 
     .input-with-icon input {
-      width: 100%;
-      background: #0b141a;
-      border: 1px solid #202c33;
-      border-radius: 10px;
+      flex: 1;
+      background: none;
+      border: none;
       color: #e9edef;
       font-family: inherit;
       font-size: 0.95rem;
-      padding: 12px 42px 12px 40px;
+      padding: 10px 0;
       outline: none;
-      transition: all 0.2s ease;
-    }
-
-    .input-with-icon input:focus {
-      border-color: #00a884;
-      box-shadow: 0 0 0 3px rgba(0, 168, 132, 0.25);
-      background: #111b21;
     }
 
     .password-toggle-btn {
-      position: absolute;
-      left: 10px;
       background: none;
       border: none;
       color: #8696a0;
@@ -1273,27 +420,27 @@
 
     .login-btn-primary {
       width: 100%;
-      background: linear-gradient(135deg, #00a884, #005c4b);
-      color: #fff;
-      border: none;
+      background: #00a884;
+      color: #111b21;
       font-family: inherit;
-      font-size: 1rem;
+      font-size: 0.95rem;
       font-weight: 800;
-      padding: 13px;
-      border-radius: 12px;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
       cursor: pointer;
+      margin-top: 10px;
+      transition: all 0.2s ease;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 10px;
-      margin-top: 10px;
-      box-shadow: 0 4px 14px rgba(0, 168, 132, 0.4);
-      transition: all 0.2s ease;
+      gap: 8px;
     }
 
     .login-btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(0, 168, 132, 0.5);
+      background: #00c69d;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(0, 168, 132, 0.4);
     }
 
     .login-btn-primary:disabled {
@@ -1304,189 +451,119 @@
 
     .login-error-msg {
       background: rgba(241, 92, 109, 0.15);
-      border: 1px solid rgba(241, 92, 109, 0.4);
+      border: 1px solid rgba(241, 92, 109, 0.35);
       color: #ff6b6b;
-      padding: 10px 14px;
+      padding: 9px 12px;
       border-radius: 8px;
-      font-size: 0.84rem;
-      font-weight: 600;
-      text-align: right;
-      margin-bottom: 18px;
+      font-size: 0.82rem;
+      margin-bottom: 14px;
+      text-align: center;
     }
 
     .login-spinner {
       width: 18px;
       height: 18px;
-      border: 2px solid rgba(255,255,255,0.3);
-      border-top-color: #fff;
+      border: 2.5px solid rgba(17, 27, 33, 0.3);
+      border-top-color: #111b21;
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
 
-    /* ===== USERS MANAGEMENT MODAL STYLES ===== */
-    .users-management-content {
-      width: 780px !important;
-      max-width: 95vw !important;
+    @keyframes spin {
+      to { transform: rotate(360deg); }
     }
 
-    .modal-title-with-badge {
-      display: flex;
-      align-items: center;
-      gap: 10px;
+    /* Users Management Table & Modal */
+    .users-management-content {
+      max-width: 900px;
+      width: 95%;
     }
 
     .users-toolbar {
       display: flex;
-      align-items: center;
       justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 18px;
-      background: #111b21;
-      padding: 14px 16px;
-      border-radius: 12px;
-      border: 1px solid #202c33;
+      align-items: center;
+      margin-bottom: 16px;
+      gap: 12px;
+      flex-wrap: wrap;
     }
 
     .users-table-wrapper {
-      border: 1px solid #202c33;
-      border-radius: 12px;
-      overflow: hidden;
       background: #111b21;
+      border: 1px solid #202c33;
+      border-radius: 10px;
+      overflow: hidden;
     }
 
     .users-table {
       width: 100%;
       border-collapse: collapse;
       text-align: right;
-      font-size: 0.88rem;
+      font-size: 0.86rem;
     }
 
     .users-table th {
       background: #182229;
       color: #8696a0;
-      padding: 12px 14px;
       font-weight: 700;
-      font-size: 0.82rem;
+      padding: 12px 14px;
       border-bottom: 1px solid #202c33;
     }
 
     .users-table td {
       padding: 12px 14px;
-      border-bottom: 1px solid rgba(255,255,255,0.04);
+      border-bottom: 1px solid #1c272d;
       color: #e9edef;
       vertical-align: middle;
     }
 
     .users-table tr:hover td {
-      background: rgba(255,255,255,0.02);
+      background: rgba(255, 255, 255, 0.02);
     }
 
-    .user-cell-profile {
-      display: flex;
-      align-items: center;
-      gap: 10px;
+    .table-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #d1d7db;
+      font-family: inherit;
+      font-size: 0.74rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-left: 6px;
+      transition: all 0.2s;
     }
 
-    .user-table-avatar {
-      width: 34px;
-      height: 34px;
-      border-radius: 50%;
-      background: #202c33;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 800;
-      color: #00d26a;
-      flex-shrink: 0;
-    }
-
-    .user-table-names {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .user-table-names strong {
-      font-size: 0.9rem;
+    .table-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
       color: #fff;
     }
 
-    .user-table-names span {
-      font-size: 0.76rem;
-      color: #8696a0;
-    }
-
-    .account-tag-chip {
-      display: inline-block;
-      font-size: 0.72rem;
-      font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 6px;
-      background: #182229;
-      border: 1px solid #2a3942;
-      color: #53bdeb;
-      margin: 2px;
-    }
-
-    .account-tag-all {
-      color: #00d26a;
-      border-color: rgba(0, 210, 106, 0.3);
-      background: rgba(0, 210, 106, 0.1);
-    }
-
-    .user-actions-cell {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .table-action-btn {
-      background: none;
-      border: 1px solid #2a3942;
-      color: #8696a0;
-      font-family: inherit;
-      font-size: 0.78rem;
-      font-weight: 700;
-      padding: 5px 10px;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .table-action-btn:hover {
-      background: #202c33;
-      color: #e9edef;
-      border-color: #3b4a54;
-    }
-
-    .table-action-btn.btn-edit:hover {
-      color: #53bdeb;
-      border-color: #53bdeb;
-    }
-
-    .table-action-btn.btn-delete:hover {
+    .table-btn.delete-btn:hover {
+      background: rgba(241, 92, 109, 0.2);
+      border-color: rgba(241, 92, 109, 0.4);
       color: #ff6b6b;
-      border-color: #ff6b6b;
-      background: rgba(241, 92, 109, 0.1);
     }
 
-    /* ===== USER EDIT SUB-MODAL STYLES ===== */
+    /* Modal Form Controls */
     .config-box-card {
       background: #182229;
-      border: 1px solid #202c33;
-      border-radius: 12px;
-      padding: 14px 16px;
-      margin-top: 14px;
+      border: 1px solid #2a3942;
+      border-radius: 10px;
+      padding: 14px;
+      margin-top: 10px;
     }
 
     .radio-option-row {
-      margin: 8px 0;
+      margin-bottom: 10px;
     }
 
     .radio-label {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 0.88rem;
+      font-size: 0.86rem;
       color: #e9edef;
       cursor: pointer;
     }
@@ -1494,14 +571,14 @@
     .specific-accounts-selector {
       margin-top: 12px;
       padding-top: 12px;
-      border-top: 1px solid #2a3942;
+      border-top: 1px solid #222d34;
     }
 
     .selector-header {
       display: flex;
-      align-items: center;
       justify-content: space-between;
-      margin-bottom: 8px;
+      align-items: center;
+      margin-bottom: 10px;
     }
 
     .text-btn {
@@ -1509,10 +586,9 @@
       border: none;
       color: #00a884;
       font-family: inherit;
-      font-size: 0.78rem;
-      font-weight: 700;
+      font-size: 0.76rem;
       cursor: pointer;
-      padding: 0 4px;
+      padding: 2px 4px;
     }
 
     .text-btn:hover {
@@ -1525,36 +601,145 @@
       gap: 8px;
       max-height: 180px;
       overflow-y: auto;
-      padding: 4px;
+      padding: 6px 2px;
     }
 
-    .account-check-card {
+    .account-check-chip {
+      background: #202c33;
+      border: 1px solid #2a3942;
+      border-radius: 8px;
+      padding: 6px 10px;
       display: flex;
       align-items: center;
       gap: 8px;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .account-check-chip:hover {
+      background: #2a3942;
+    }
+
+    /* Response metrics table styles */
+    .report-response-metrics {
       background: #111b21;
       border: 1px solid #202c33;
-      border-radius: 8px;
-      padding: 8px 10px;
-      cursor: pointer;
-      font-size: 0.82rem;
-      transition: all 0.15s ease;
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 20px;
     }
 
-    .account-check-card:hover {
-      border-color: #00a884;
+    .report-response-metrics h3 {
+      font-size: 1.05rem;
+      color: #00d26a;
+      margin-bottom: 6px;
+    }
+
+    .response-metrics-note {
+      font-size: 0.8rem;
+      color: #8696a0;
+      margin-bottom: 14px;
+    }
+
+    .response-metrics-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: right;
+      font-size: 0.85rem;
+    }
+
+    .response-metrics-table th {
       background: #182229;
+      color: #8696a0;
+      padding: 10px 12px;
+      border-bottom: 1px solid #202c33;
     }
 
-    .account-check-card input[type="checkbox"] {
-      cursor: pointer;
-      accent-color: #00a884;
+    .response-metrics-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #1c272d;
+      color: #e9edef;
+    }
+
+    /* Evidence coverage styles */
+    .report-evidence-coverage {
+      background: #111b21;
+      border: 1px solid #202c33;
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 20px;
+    }
+
+    .report-evidence-coverage h3 {
+      font-size: 1.05rem;
+      color: #53bdeb;
+      margin-top: 0;
+      margin-bottom: 6px;
+    }
+
+    .evidence-coverage-note {
+      font-size: 0.8rem;
+      color: #8696a0;
+      margin-bottom: 12px;
+    }
+
+    .evidence-coverage-card {
+      background: #182229;
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-bottom: 8px;
+      border-right: 3px solid #00a884;
+    }
+
+    .evidence-coverage-card--insufficient {
+      border-right-color: #ffb020;
+    }
+
+    /* Audio evidence cards */
+    .report-audio-evidence {
+      background: #111b21;
+      border: 1px solid #202c33;
+      border-radius: 12px;
+      padding: 18px;
+      margin-top: 20px;
+    }
+
+    .report-audio-evidence h3 {
+      font-size: 1.05rem;
+      color: #ffb020;
+      margin-top: 0;
+      margin-bottom: 14px;
+    }
+
+    .audio-evidence-card {
+      background: #182229;
+      border: 1px solid #202c33;
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
+      border-right: 3px solid #00a884;
+    }
+
+    .audio-evidence-card--abusive {
+      border-right-color: #f15c6d;
+    }
+
+    .audio-transcript-raw {
+      background: rgba(0, 0, 0, 0.25);
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 0.88rem;
+      color: #e9edef;
+      white-space: pre-wrap;
+      margin: 8px 0;
     }
   </style>
 </head>
 <body>
 
-  <!-- Top Global Header & Navigation -->
+  <!-- Top Global Header -->
   <header class="top-app-header">
     <div class="app-brand">
       <img src="whatsi.png" alt="Whatsi Logo" class="app-brand-logo" />
@@ -1566,15 +751,9 @@
       </div>
     </div>
 
-    <!-- Dual View Switcher Buttons -->
-    <nav class="app-nav-tabs">
-      <button class="app-nav-btn active" id="tab-btn-whatsapp" onclick="switchMainTab('whatsapp')">
-        <span>💬 المحادثات الحية (WhatsApp)</span>
-      </button>
-      <button class="app-nav-btn" id="tab-btn-dashboard" onclick="switchMainTab('dashboard')">
-        <span>📊 لوحة التقارير والتدقيق (AI Dashboard)</span>
-      </button>
-    </nav>
+    <div class="header-badge-tag">
+      <span>📊 لوحة التقارير والتدقيق الذكي (AI Dashboard)</span>
+    </div>
 
     <!-- Header Actions (Live Status + User Profile) -->
     <div class="header-right-actions">
@@ -1601,146 +780,10 @@
   </header>
 
   <!-- Main Viewport -->
-  <div class="app-main-viewport">
+  <main class="app-main-viewport">
 
-    <!-- VIEW 1: LIVE WHATSAPP CHATS VIEW -->
-    <section id="view-whatsapp" class="viewport-view active">
-      <div class="whatsapp-full-container">
-        
-        <!-- Column 1: Vertical Accounts Navigation Rail -->
-        <aside class="wa-accounts-rail" id="wa-accounts-rail">
-          <!-- Top: All Accounts Button -->
-          <div class="wa-rail-item active" id="wa-rail-item-all" onclick="selectSalesAccount('')" title="جميع خطوط المبيعات">
-            <div class="wa-rail-avatar wa-rail-all-avatar">
-              <span>👥</span>
-              <span class="wa-rail-badge" id="wa-rail-badge-all" style="display: none;">0</span>
-            </div>
-            <span class="wa-rail-label">الكل</span>
-          </div>
-
-          <div class="wa-rail-divider"></div>
-
-          <!-- Scrollable Accounts List -->
-          <div class="wa-rail-list-scroll" id="wa-rail-accounts-list">
-            <!-- Dynamically populated sales accounts -->
-          </div>
-
-          <!-- Bottom Utility Icons -->
-          <div class="wa-rail-footer">
-            <button class="wa-icon-btn" onclick="switchMainTab('dashboard')" title="لوحة التقارير والتدقيق">📊</button>
-            <button class="wa-icon-btn" onclick="openSchedulesModal()" title="إعدادات مواعيد العمل">⚙️</button>
-          </div>
-        </aside>
-
-        <!-- Column 2: Sidebar Chats List -->
-        <aside class="wa-chats-sidebar">
-          <div class="wa-sidebar-header">
-            <div class="wa-sidebar-title-row">
-              <div class="wa-sidebar-user-pill">
-                <span class="wa-user-dot"></span>
-                <span id="wa-current-account-title" style="font-weight: 700; font-size: 0.95rem; color: #e9edef;">جميع خطوط المبيعات</span>
-              </div>
-              <button class="wa-icon-btn" onclick="loadChatsList()" title="تحديث قائمة الشات">🔄</button>
-            </div>
-
-            <!-- Search Bar -->
-            <div class="wa-search-box">
-              <span style="color:#8696a0; font-size: 0.9rem;">🔍</span>
-              <input type="text" id="wa-search-input" class="wa-search-input" placeholder="بحث في المحادثات أو بالرقم..." oninput="handleChatSearch(event)" />
-            </div>
-
-            <!-- Filter Chips (All vs Unread) -->
-            <div class="wa-filter-chips">
-              <button class="wa-chip active" id="wa-chip-all" onclick="setChatFilterChip('all')">
-                الكل
-              </button>
-              <button class="wa-chip" id="wa-chip-unread" onclick="setChatFilterChip('unread')">
-                غير مقروءة
-                <span class="wa-chip-badge" id="wa-unread-chip-count" style="display: none;">0</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Chat List Scroll -->
-          <div class="wa-chat-list-scroll" id="wa-chat-list-container">
-            <div style="padding: 30px; text-align: center; color: #8696a0;">جاري تحميل المحادثات...</div>
-          </div>
-        </aside>
-
-        <!-- Column 3: Active Chat Window -->
-        <main class="wa-conversation-panel" id="wa-conversation-panel">
-          
-          <!-- Empty State (No Chat Selected) -->
-          <div class="wa-empty-chat-state" id="wa-empty-chat-state">
-            <img src="whatsi.png" style="width: 80px; height: 80px; opacity: 0.85; border-radius: 20px; filter: drop-shadow(0 4px 12px rgba(0,0,0,0.4));" />
-            <h3>واتساب للأعمال - رقابة المحادثات الحية</h3>
-            <p>اختر محادثة من القائمة لعرض الرسائل والتسجيلات الصوتية الحية والتفريغ الفوري بالذكاء الاصطناعي.</p>
-          </div>
-
-          <!-- Active Conversation -->
-          <div id="wa-active-chat-content" style="display: none; height: 100%; flex-direction: column;">
-            
-            <!-- Chat Header -->
-            <div class="wa-chat-header">
-              <div class="wa-header-user">
-                <div class="wa-chat-avatar" id="wa-active-avatar">ع</div>
-                <div class="wa-header-details">
-                  <h3 id="wa-active-name">اسم العميل</h3>
-                  <p id="wa-active-meta">رقم الهاتف · خط السيلز</p>
-                </div>
-              </div>
-              <div style="display:flex; align-items:center; gap:8px;">
-                <button class="action-btn refresh-btn" onclick="reloadCurrentChatMessages()" title="تحديث الرسائل">🔄 تحديث</button>
-              </div>
-            </div>
-
-            <!-- Student Dossier Brief Card (Permanent CRM Profile) -->
-            <div class="wa-brief-card" id="wa-brief-card" style="display: none;">
-              <div class="wa-brief-card-header" onclick="toggleBriefCardCollapse()">
-                <div class="wa-brief-header-title">
-                  <span class="wa-brief-icon">🎓</span>
-                  <span class="wa-brief-title-text">ملف وبريف الطالب الدائم (CRM Dossier)</span>
-                  <span class="wa-brief-badge" id="wa-brief-status-badge">نشط</span>
-                </div>
-                <div class="wa-brief-actions" onclick="event.stopPropagation()">
-                  <span class="wa-brief-updated-at" id="wa-brief-updated-at"></span>
-                  <button class="wa-brief-btn" id="wa-brief-refresh-btn" onclick="triggerGenerateCustomerBrief(event)" title="توليد أو تحديث البريف الآن بالذكاء الاصطناعي">
-                    <span id="wa-brief-btn-icon">✨</span>
-                    <span id="wa-brief-btn-label">تحديث البريف</span>
-                  </button>
-                  <button class="wa-brief-toggle-btn" id="wa-brief-toggle-btn" onclick="toggleBriefCardCollapse(event)" title="طي / توسيع البريف">
-                    <span id="wa-brief-toggle-icon">▲</span>
-                  </button>
-                </div>
-              </div>
-              <div class="wa-brief-body" id="wa-brief-body">
-                <div class="wa-brief-content" id="wa-brief-content">
-                  <!-- Brief content dynamically populated -->
-                </div>
-              </div>
-            </div>
-
-            <!-- Messages Stream Area -->
-            <div class="wa-chat-messages-scroll" id="wa-chat-messages-scroll"></div>
-
-            <!-- Simulated WhatsApp Message Input Footer -->
-            <div class="wa-chat-footer-simulated">
-              <button class="wa-footer-icon-btn" title="رموز تعبيرية">😊</button>
-              <button class="wa-footer-icon-btn" title="إرفاق ملف">📎</button>
-              <div class="wa-footer-input-simulated">
-                <span class="wa-footer-placeholder">عرض مباشر للقراءة فقط (Live Monitor Mode)</span>
-              </div>
-              <button class="wa-footer-icon-btn" title="تسجيل صوتي">🎤</button>
-            </div>
-
-          </div>
-
-        </main>
-      </div>
-    </section>
-
-    <!-- VIEW 2: AI AUDIT & REPORT DASHBOARD -->
-    <section id="view-dashboard" class="viewport-view">
+    <!-- AI AUDIT & REPORT DASHBOARD -->
+    <section id="view-dashboard" class="viewport-view active">
       <div class="web-dashboard-scroll">
         
         <!-- Top KPI Overview Cards -->
@@ -1805,10 +848,6 @@
             <button class="toolbar-btn" onclick="testGeminiConnection()" title="فحص اتصال Gemini">
               <span class="tb-icon">⚡</span>
               <span>فحص اتصال Gemini</span>
-            </button>
-            <button class="toolbar-btn" onclick="openMessagesPreview()" title="سجل الرسائل في قاعدة البيانات">
-              <span class="tb-icon">📋</span>
-              <span>سجل الرسائل الملتقطة</span>
             </button>
             <button class="toolbar-btn" onclick="openSettingsModal()" title="أرقام الفريق المستبعدة">
               <span class="tb-icon">🛡️</span>
@@ -1902,7 +941,7 @@
       </div>
     </section>
 
-  </div>
+  </main>
 
   <!-- ===== MODALS ===== -->
 
@@ -1997,24 +1036,8 @@
         <textarea id="excluded-phones-input" rows="6" placeholder="مثال:&#10;01012345678&#10;01123456789&#10;+201234567890" class="modal-textarea" dir="ltr"></textarea>
       </div>
       <div class="modal-footer">
-        <button class="modal-btn cancel" onclick="closeSettingsModal()">إلغاء</button>
+        <button class="modal-btn cancel" onclick="closeSettingsModal()">إغلاق</button>
         <button class="modal-btn save" onclick="saveInternalSettings()">حفظ الإعدادات</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Messages Preview Modal -->
-  <div id="messages-modal" class="modal hidden">
-    <div class="modal-backdrop" onclick="closeMessagesModal()"></div>
-    <div class="modal-content modal-large">
-      <div class="modal-header">
-        <h3 id="messages-modal-title">📋 سجل الرسائل الملتقطة في قاعدة البيانات</h3>
-        <button class="modal-close" onclick="closeMessagesModal()">✕</button>
-      </div>
-      <div class="modal-body modal-scrollable" id="messages-list-container"></div>
-      <div class="modal-footer">
-        <span id="messages-count-label" class="modal-footer-info">0 رسالة</span>
-        <button class="modal-btn cancel" onclick="closeMessagesModal()">إغلاق</button>
       </div>
     </div>
   </div>
@@ -2030,7 +1053,7 @@
         <h2>Whatsi Z-ray</h2>
         <span class="login-tag">منظومة تدقيق المبيعات والرقابة</span>
       </div>
-      <p class="login-desc">أدخل اسم المستخدم وكلمة السر للوصول إلى لوحة التحكم والمحادثات الحية والتقارير</p>
+      <p class="login-desc">أدخل اسم المستخدم وكلمة السر للوصول إلى لوحة التقارير والتدقيق الذكي للمبيعات</p>
 
       <form id="login-form" onsubmit="submitLoginForm(event)">
         <div class="login-error-msg" id="login-error-msg" style="display: none;"></div>

@@ -6,6 +6,8 @@
   "scripts": {
     "start": "electron .",
     "start:web": "node server.js",
+    "dev": "node server.js",
+    "start:dev": "node server.js",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev --skip-generate",
     "db:status": "prisma migrate status"
